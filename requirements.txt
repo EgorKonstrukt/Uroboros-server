@@ -4,3 +4,7 @@ sqlalchemy>=2.0
 aiosqlite>=0.20
 pydantic>=2.0
 nuitka>=2.0
+python-multipart
+aiohttp>=3.9
+requests>=2.31
+psutil>=5.9
