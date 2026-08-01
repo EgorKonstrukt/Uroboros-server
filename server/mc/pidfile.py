@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-PID_DIR = Path.home() / ".uroboros-server" / "server" / "pids"
+PID_DIR = Path.home() / ".uroboros" / "server" / "pids"
 
 
 def _ensure():

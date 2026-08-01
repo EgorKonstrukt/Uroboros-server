@@ -8,7 +8,7 @@ from dataclasses import dataclass, asdict
 from server.auth.crypto import hash_password
 
 
-SERVER_DIR = Path.home() / ".uroboros-server" / "server"
+SERVER_DIR = Path.home() / ".uroboros" / "server"
 CONFIG_FILE = SERVER_DIR / "config.json"
 
 _WEAK_PASSWORDS = {"", "blabla", "admin", "password"}
@@ -49,6 +49,7 @@ class ServerConfig:
         inst = cls()
         if not CONFIG_FILE.exists():
             inst._ensure_secure_password()
+            inst.db_path = str(SERVER_DIR / "auth.db")
             inst.save()
             return inst
 
