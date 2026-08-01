@@ -239,6 +239,12 @@ remove_autostart() {
     echo "[OK] Autostart disabled."
 }
 
+set_password() {
+    echo
+    "$RUNNER" -m server set-admin-password
+    hold
+}
+
 hold() {
     if [ -z "$AUTOSTART" ]; then
         read -n 1 -s -r -p "Press any key to continue..."
@@ -247,8 +253,11 @@ hold() {
 }
 
 AUTOSTART=""
+SET_PASSWORD=""
 if [ "$1" = "--autostart" ]; then
     AUTOSTART="1"
+elif [ "$1" = "--set-password" ]; then
+    SET_PASSWORD="$2"
 fi
 
 if [ -n "$AUTOSTART" ]; then
@@ -261,6 +270,11 @@ fi
 
 ensure_python || exit 1
 ensure_venv || exit 1
+
+if [ -n "$SET_PASSWORD" ]; then
+    "$RUNNER" -m server set-admin-password "$SET_PASSWORD"
+    exit $?
+fi
 
 while true; do
     clear
@@ -276,6 +290,7 @@ while true; do
     echo " [B] Build compiled version (Nuitka)"
     echo " [A] Enable autostart"
     echo " [R] Disable autostart"
+    echo " [P] Set admin password"
     echo " [Q] Quit"
     echo
     read -n 1 -p "Press a key to select: " choice
@@ -328,6 +343,9 @@ while true; do
         r|R)
             remove_autostart
             hold
+            ;;
+        p|P)
+            set_password
             ;;
         q|Q)
             exit 0

@@ -6,6 +6,8 @@ cd /d "%~dp0"
 
 set "AUTOSTART="
 if /i "%~1"=="--autostart" set "AUTOSTART=1"
+set "SET_PASSWORD="
+if /i "%~1"=="--set-password" set "SET_PASSWORD=%~2"
 
 call :ensure_python
 if errorlevel 1 goto done
@@ -14,6 +16,11 @@ if errorlevel 1 goto done
 
 if defined AUTOSTART (
     call :run
+    exit /b 0
+)
+
+if defined SET_PASSWORD (
+    "%RUNNER%" -m server set-admin-password "%SET_PASSWORD%"
     exit /b 0
 )
 
@@ -31,9 +38,11 @@ echo  [S] Full shutdown (panel + Minecraft)
 echo  [B] Build compiled version (Nuitka)
 echo  [A] Enable autostart
 echo  [R] Disable autostart
+echo  [P] Set admin password
 echo  [Q] Quit
 echo.
-choice /c 1234SBARQ /n /m "Press a key to select: "
+choice /c 1234SBARQP /n /m "Press a key to select: "
+if errorlevel 10 goto set_password
 if errorlevel 9 exit /b 0
 if errorlevel 8 goto remove_autostart
 if errorlevel 7 goto add_autostart
@@ -218,6 +227,12 @@ goto menu
 if exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Uroboros Server.vbs" del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Uroboros Server.vbs" >nul
 echo.
 echo [OK] Autostart disabled.
+call :hold
+goto menu
+
+:set_password
+echo.
+"%RUNNER%" -m server set-admin-password
 call :hold
 goto menu
 

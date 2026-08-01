@@ -197,6 +197,32 @@ def cmd_status(args):
     _run_async(_show_status(args.instance_id))
 
 
+def cmd_set_admin_password(args):
+    from server.config import ServerConfig
+    from server.auth.crypto import hash_password
+    password = args.password
+    if password is None:
+        if os.name == "nt":
+            import msvcrt
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+        while not password:
+            try:
+                password = input("Enter new admin password: ").strip()
+            except EOFError:
+                break
+            if not password:
+                print("[WARN] Password cannot be empty.")
+    if not password:
+        print("[ERROR] Password cannot be empty.")
+        sys.exit(1)
+    cfg = ServerConfig.load()
+    cfg.admin_password = hash_password(password)
+    cfg.admin_password_plain = password
+    cfg.save()
+    print("[OK] Admin panel password has been set.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Uroboros Server")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -222,6 +248,10 @@ def main():
     p_status = sub.add_parser("status", help="Show Minecraft server status")
     p_status.add_argument("instance_id", nargs="?", default=None)
     p_status.set_defaults(func=cmd_status)
+
+    p_pass = sub.add_parser("set-admin-password", help="Set the admin panel password (interactive if no password given)")
+    p_pass.add_argument("password", nargs="?")
+    p_pass.set_defaults(func=cmd_set_admin_password)
 
     args = parser.parse_args()
     args.func(args)
