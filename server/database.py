@@ -46,6 +46,8 @@ class DatabaseManager:
         self._async_session = None
 
     async def init_db(self, db_path: Path):
+        db_path = Path(db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
         url = get_database_url(db_path)
         self._engine = create_async_engine(url, echo=False)
         self._async_session = async_sessionmaker(self._engine, class_=AsyncSession, expire_on_commit=False)

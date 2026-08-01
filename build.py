@@ -6,6 +6,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import sysconfig
 import uuid
 import zlib
 from pathlib import Path
@@ -32,6 +33,84 @@ else:
 OS_TAG = {"win32": "win", "linux": "linux", "darwin": "macos"}.get(sys.platform, sys.platform)
 PLATFORM_TAG = f"{OS_TAG}-{ARCH}"
 EXE_NAME = APP_NAME.replace(" ", "")
+OUTPUT_EXT = ".exe" if sys.platform == "win32" else ""
+
+_LINUX_INSTALL = {
+    "apt-get": ["install", "-y"],
+    "dnf": ["install", "-y"],
+    "yum": ["install", "-y"],
+    "pacman": ["-S", "--noconfirm", "--needed"],
+    "apk": ["add"],
+}
+_LINUX_UPDATE = {"apt-get", "apk"}
+_LINUX_PACKAGES = {
+    "apt-get": ["patchelf", "build-essential", "python3-dev"],
+    "dnf": ["patchelf", "gcc", "python3-devel"],
+    "yum": ["patchelf", "gcc", "python3-devel"],
+    "pacman": ["patchelf", "base-devel"],
+    "apk": ["patchelf", "build-base", "python3-dev"],
+}
+
+
+def _run_as_root(args):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return subprocess.run(args)
+    sudo = shutil.which("sudo")
+    if sudo is None:
+        return None
+    return subprocess.run([sudo] + args)
+
+
+def _install_pip_package(package):
+    print(f"[INFO] Installing {package} ...")
+    result = subprocess.run([sys.executable, "-m", "pip", "install", package])
+    if result.returncode != 0:
+        print(f"[ERROR] Failed to install {package}.")
+        print(f"        Install it manually: {sys.executable} -m pip install {package}")
+        sys.exit(1)
+
+
+def _ensure_linux_prereqs():
+    mgr = next((c for c in _LINUX_INSTALL if shutil.which(c)), None)
+    if mgr is None:
+        print("[ERROR] Unsupported Linux distribution (no apt-get/dnf/yum/pacman/apk found).")
+        print("        Install 'patchelf', a C compiler and Python development headers manually.")
+        sys.exit(1)
+
+    missing = []
+    if shutil.which("patchelf") is None:
+        missing.append("patchelf")
+    if not (shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")):
+        missing.append("C compiler (gcc/clang)")
+    include_dir = sysconfig.get_paths().get("include")
+    if not include_dir or not Path(include_dir).exists():
+        missing.append("Python development headers")
+
+    if not missing:
+        return
+
+    print(f"[INFO] Installing missing build dependencies: {', '.join(missing)} ...")
+    if mgr in _LINUX_UPDATE:
+        result = _run_as_root([mgr, "update"])
+        if result is None or result.returncode != 0:
+            print("[ERROR] Could not update package lists with sudo. Install the packages manually.")
+            sys.exit(1)
+    result = _run_as_root([mgr] + _LINUX_INSTALL[mgr] + _LINUX_PACKAGES[mgr])
+    if result is None or result.returncode != 0:
+        print("[ERROR] Automatic dependency install failed. Install the packages manually, then retry.")
+        sys.exit(1)
+
+
+def _ensure_prereqs():
+    if importlib.util.find_spec("nuitka") is None:
+        _install_pip_package("nuitka")
+    if sys.platform == "linux":
+        _ensure_linux_prereqs()
+    elif sys.platform == "darwin" and not (shutil.which("cc") or shutil.which("clang")):
+        print("[INFO] Installing Xcode Command Line Tools ...")
+        subprocess.run(["xcode-select", "--install"])
+        print("[INFO] Xcode CLT installation started. When it finishes, re-run the build.")
+        sys.exit(0)
 
 
 def _confirm(question, default=False):
@@ -44,7 +123,7 @@ def _confirm(question, default=False):
             return True
         if raw in ("n", "no"):
             return False
-        print("Please answer 'y' or 'n'.")
+        print("Please enter 'y' or 'n'.")
 
 
 def _ask(question, default):
@@ -72,7 +151,7 @@ def _interactive(args):
     args.clean = _confirm("Clean the output folder before building?", True)
     args.jobs = _ask_int("Number of parallel jobs (0 = auto)", 0)
     args.output_dir = _ask("Output folder", str(DIST_DIR))
-    args.installer = _confirm("Create Inno Setup installer after the build?", False)
+    args.installer = _confirm("Create Inno Setup installer after the build?", sys.platform == "win32")
     return args
 
 
@@ -232,6 +311,9 @@ def _write_iss(ico_path, source_path, output_dir):
 
 
 def _build_installer(ico_path, dist_path, output_dir):
+    if sys.platform != "win32":
+        print("\nInno Setup installer is only available on Windows. Skipping.")
+        return
     iscc = shutil.which("ISCC.exe") or shutil.which("iscc")
     if not iscc:
         candidates = [
@@ -284,16 +366,12 @@ def main():
     parser.add_argument("--installer", action="store_true", help="Create Inno Setup installer")
     known, remaining = parser.parse_known_args()
 
-    if importlib.util.find_spec("nuitka") is None:
-        print("Nuitka is not installed.")
-        print("Install it first with: python -m pip install nuitka")
-        sys.exit(1)
-
     if len(sys.argv) == 1:
         known = _interactive(known)
 
     OUTPUT_DIR = Path(known.output_dir)
 
+    _ensure_prereqs()
     ico_path = _ensure_ico()
 
     if known.clean and OUTPUT_DIR.exists():
@@ -337,7 +415,7 @@ def main():
         sys.exit(result.returncode)
 
     if known.onefile:
-        exe = OUTPUT_DIR / f"{EXE_NAME}.exe"
+        exe = OUTPUT_DIR / f"{EXE_NAME}{OUTPUT_EXT}"
         if exe.exists():
             print(f"\nBuild successful! {exe} ({_mb(exe.stat().st_size):.1f} MB)")
         dist_path = str(exe)
