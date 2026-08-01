@@ -8,7 +8,7 @@ from dataclasses import dataclass, asdict
 from server.auth.crypto import hash_password
 
 
-SERVER_DIR = Path.home() / ".yamcl" / "server"
+SERVER_DIR = Path.home() / ".uroboros-server" / "server"
 CONFIG_FILE = SERVER_DIR / "config.json"
 
 _WEAK_PASSWORDS = {"", "blabla", "admin", "password"}
