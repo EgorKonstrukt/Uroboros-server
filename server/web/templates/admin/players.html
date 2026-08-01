@@ -1,0 +1,26 @@
+      <div id="playersPanel" class="panel">
+        <div class="panel-header">
+          <h3>Players</h3>
+          <span class="panel-sub" id="playersStatus" style="color:var(--text-hint)"></span>
+        </div>
+        <div class="row" style="margin-bottom:12px">
+          <button class="btn btn-start" onclick="loadPlayers()">Refresh</button>
+          <input id="playersSearch" placeholder="Search players..." oninput="renderPlayers()">
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th>ID</th>
+              <th>Nickname</th>
+              <th>Login</th>
+              <th>Email</th>
+              <th>Last IP</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Bans</th>
+              <th>Actions</th>
+            </tr></thead>
+            <tbody id="playersBody"></tbody>
+          </table>
+        </div>
+      </div>

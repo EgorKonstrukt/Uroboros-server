@@ -1,0 +1,131 @@
+      <div id="serversPanel" class="panel">
+        <div id="serverDetailView" style="display:none">
+          <div class="row" style="margin-bottom:12px">
+            <h2 id="serverDetailTitle" style="font-size:18px;font-weight:500;margin:0">Server</h2>
+            <span id="serverDetailBadge" class="badge badge-stopped">STOPPED</span>
+            <span id="serverDetailPid" style="font-size:12px;color:#888;font-family:monospace;margin-left:4px"></span>
+            <span id="serverDetailModpack" style="font-size:12px;margin-left:8px;padding:2px 8px;background:#e8f5e9;border-radius:4px;display:none"></span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <button class="btn btn-start btn-sm" onclick="serverAction('start')" id="detailBtnStart">Start</button>
+              <button class="btn btn-stop btn-sm" onclick="serverAction('stop')" id="detailBtnStop" disabled>Stop</button>
+              <button class="btn btn-restart btn-sm" onclick="serverAction('restart')" id="detailBtnRestart">Restart</button>
+              <button class="btn btn-reload btn-sm" onclick="serverAction('reload')" id="detailBtnReload" disabled>Reload</button>
+              <button class="btn btn-secondary btn-sm" onclick="syncServerWhitelist()" id="detailBtnSyncWhitelist">Sync Whitelist</button>
+            </div>
+          </div>
+          <div class="server-sub-nav">
+            <button class="sub-nav-item active" data-subtab="overview" onclick="switchServerSubTab('overview')">Overview</button>
+            <button class="sub-nav-item" data-subtab="console" onclick="switchServerSubTab('console')">Console</button>
+            <button class="sub-nav-item" data-subtab="settings" onclick="switchServerSubTab('settings')">Settings</button>
+            <button class="sub-nav-item" data-subtab="files" onclick="switchServerSubTab('files')">Files</button>
+          </div>
+          <div id="serverOverviewView" class="server-sub-panel active">
+            <div class="overview-head">
+              <div>
+                <div class="overview-head-title">Server Overview</div>
+                <div class="overview-head-sub" id="ovLastUpdate">Waiting for data...</div>
+              </div>
+              <div class="overview-head-buttons">
+                <span class="overview-live" id="ovLiveDot">Live</span>
+                <button class="btn btn-secondary btn-sm" onclick="refreshOverview(true)">Refresh</button>
+              </div>
+            </div>
+            <div class="overview-tiles" id="overviewTiles"></div>
+            <div class="overview-grid">
+              <div class="md-card">
+                <div class="md-card-title">Memory <span class="overview-chart-sub" id="ovMemSub"></span></div>
+                <svg id="ovMemChart" class="overview-chart" viewBox="0 0 600 170" preserveAspectRatio="none"></svg>
+              </div>
+              <div class="md-card">
+                <div class="md-card-title">CPU <span class="overview-chart-sub" id="ovCpuSub"></span></div>
+                <svg id="ovCpuChart" class="overview-chart" viewBox="0 0 600 170" preserveAspectRatio="none"></svg>
+              </div>
+            </div>
+            <div class="overview-grid overview-grid-wide">
+              <div class="md-card">
+                <div class="md-card-title">Players online <span class="overview-chart-sub" id="ovPlayersSub"></span></div>
+                <svg id="ovPlayersChart" class="overview-chart" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+              </div>
+            </div>
+            <div class="overview-details" id="overviewDetails"></div>
+          </div>
+          <div id="serverConsoleView" class="server-sub-panel active">
+            <div class="console-wrap server-console-wrap">
+              <div class="console-toolbar">
+                <select id="consoleRefreshRate" title="Console refresh rate" onchange="onConsoleRefreshChange()">
+                  <option value="500">0.5s</option>
+                  <option value="1000">1s</option>
+                  <option value="2000" selected>2s</option>
+                  <option value="5000">5s</option>
+                  <option value="10000">10s</option>
+                  <option value="30000">30s</option>
+                </select>
+                <span class="sep"></span>
+                <button class="btn-text" id="consolePauseBtn" onclick="toggleConsolePause()">Pause</button>
+                <button class="btn-text active" id="consoleScrollBtn" onclick="toggleConsoleScroll()">Scroll</button>
+                <button class="btn-text" id="consoleWrapBtn" onclick="toggleConsoleWrap()">Wrap</button>
+                <span class="sep"></span>
+                <button class="btn-text" onclick="consoleFontSize(-1)">A-</button>
+                <button class="btn-text" onclick="consoleFontSize(1)">A+</button>
+                <span class="sep"></span>
+                <select id="consoleFilter" title="Filter by level" onchange="applyConsoleVisibility()">
+                  <option value="all" selected>All levels</option>
+                  <option value="no-debug">Hide debug</option>
+                  <option value="warn">Warnings + errors</option>
+                  <option value="error">Errors only</option>
+                </select>
+                <button class="btn-text" onclick="clearServerConsole()">Clear</button>
+                <div class="console-search">
+                  <input id="consoleSearchInput" placeholder="Search..." oninput="applyConsoleVisibility()">
+                  <span class="search-count" id="consoleSearchCount"></span>
+                </div>
+              </div>
+              <div id="serverConsoleOutput"></div>
+              <div class="console-status">
+                <span class="console-status-item"><span class="dot dot-off" id="consoleStatusDot"></span><span id="consoleStatusText">Offline</span></span>
+                <span class="console-status-item" id="consoleStats">Lines: 0</span>
+                <span class="console-status-item" id="consoleUpdated"></span>
+              </div>
+              <div class="console-bottom">
+                <input id="consoleCmdInput" placeholder="Type a command..." onkeydown="handleConsoleCmdKey(event)">
+                <button class="btn-text" onclick="sendServerCommand()">Send</button>
+              </div>
+            </div>
+          </div>
+          <div id="serverSettingsView" class="server-sub-panel">
+            <div class="panel-header">
+              <h3>Server Settings</h3>
+              <span class="panel-sub">Instance configuration</span>
+            </div>
+            <form id="serverSettingsForm" onsubmit="saveServerSettings(event)"></form>
+          </div>
+          <div id="serverFilesView" class="server-sub-panel">
+            <div class="fm-toolbar">
+              <div class="fm-nav">
+                <button class="btn btn-secondary btn-sm" onclick="serverFM.navigateUp()" title="Parent directory">↑</button>
+                <div id="serverFmBreadcrumb" class="fm-breadcrumb"></div>
+              </div>
+              <div class="fm-actions">
+                <button class="btn btn-secondary btn-sm" onclick="serverFM.refresh()">Refresh</button>
+                <button class="btn btn-secondary btn-sm" onclick="serverFM.mkdirPrompt()">New Folder</button>
+                <button class="btn btn-secondary btn-sm" onclick="serverFM.downloadCurrent()">Download Dir</button>
+                <div class="upload-btn">
+                  <button class="btn btn-start btn-sm">Upload Files</button>
+                  <input type="file" id="serverFilesUpload" multiple onchange="serverFM.onFilesPicked(this)">
+                </div>
+                <div class="upload-btn">
+                  <button class="btn btn-start btn-sm">+ Add Folder</button>
+                  <input type="file" id="serverFilesDirUpload" webkitdirectory multiple onchange="serverFM.onDirPicked(this)">
+                </div>
+              </div>
+            </div>
+            <div id="serverFmQueue" class="fm-queue" style="display:none"></div>
+            <div id="serverFmSelbar" class="fm-selbar" style="display:none"></div>
+            <div class="fm-search">
+              <input id="serverFmSearchInput" placeholder="Filter files..." oninput="serverFM.filterChanged()">
+            </div>
+            <div id="serverFilesDir" class="dir-display"></div>
+            <div id="serverFilesBrowser" class="fm-browser"></div>
+          </div>
+        </div>
+      </div>
