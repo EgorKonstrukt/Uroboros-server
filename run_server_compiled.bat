@@ -49,9 +49,10 @@ if errorlevel 1 goto run
 :run
 set PORT=25581
 call :killport
+call :lanip
 echo.
-echo Starting server at http://127.0.0.1:%PORT% ...
-echo Admin dashboard: http://127.0.0.1:%PORT%/admin/
+echo Starting server at http://%LANIP%:%PORT% ...
+echo Admin dashboard: http://%LANIP%:%PORT%/admin/
 echo.
 "%EXE%" run
 call :hold
@@ -111,6 +112,11 @@ echo Killing existing process on port %PORT% ...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr LISTENING') do (
     taskkill /F /PID %%a >nul 2>&1 && echo Killed PID %%a on port %PORT%
 )
+exit /b 0
+
+:lanip
+set "LANIP=127.0.0.1"
+for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Sort-Object InterfaceMetric | Select-Object -First 1).IPAddress"') do if not "%%i"=="" set "LANIP=%%i"
 exit /b 0
 
 :hold

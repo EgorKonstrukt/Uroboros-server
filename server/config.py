@@ -26,7 +26,7 @@ def _resolve_db_path(value: str) -> str:
 
 @dataclass
 class ServerConfig:
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     port: int = 25581
     db_path: str = ""
     admin_password: str = ""
