@@ -1,10 +1,30 @@
       <div id="javaPanel" class="panel">
         <div class="panel-header">
           <h3>Java Runtimes</h3>
-          <span class="panel-sub">Detected on this machine</span>
+          <span class="panel-sub">Manage Java for your servers</span>
+        </div>
+        <div class="md-card">
+          <div class="md-card-title">Install Java</div>
+          <div class="row">
+            <select id="javaVendorSelect" class="config-input" style="width:auto;min-width:200px" onchange="loadJavaVersions()"></select>
+            <select id="javaVersionSelect" class="config-input" style="width:auto;min-width:160px"></select>
+            <button class="btn btn-start" id="javaInstallBtn" onclick="installJava()">Install</button>
+            <span id="javaInstallPlatform" class="status-text"></span>
+          </div>
+          <div id="javaInstallProgress" style="display:none;margin-top:8px">
+            <div class="progress-bar"><div class="progress-fill" id="javaInstallFill" style="width:0%"></div></div>
+            <span id="javaInstallText" style="color:#888;font-size:13px"></span>
+          </div>
+        </div>
+        <div class="md-card" style="padding:0;overflow:hidden">
+          <div class="md-card-title" style="padding:16px 20px 0">Installed</div>
+          <table>
+            <thead><tr><th>Major</th><th>Version</th><th>Vendor</th><th>Arch</th><th>Path</th><th></th></tr></thead>
+            <tbody id="javaInstalledBody"></tbody>
+          </table>
         </div>
         <div class="row">
-          <button class="btn btn-start" onclick="scanJava()">Scan Java</button>
+          <button class="btn btn-start" id="javaScanBtn" onclick="scanJava()">Scan Java</button>
           <span id="javaScanStatus" class="status-text"></span>
         </div>
         <div class="md-card" style="padding:0;overflow:hidden">

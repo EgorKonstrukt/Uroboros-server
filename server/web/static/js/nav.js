@@ -20,7 +20,7 @@ function switchTab(name) {
     if (name === 'projects') { loadProjects(); }
     if (name === 'players') { loadPlayers(); }
     if (name === 'config') { loadGlobalConfig(); }
-    if (name === 'java') { loadJavaRuntimes(); }
+    if (name === 'java') { loadJavaRuntimes(); loadJavaAvailable(); }
 }
 
 function clearServerPolling() {

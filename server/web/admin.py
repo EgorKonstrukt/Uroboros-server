@@ -17,7 +17,6 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Request, File, Form, UploadFile, Body
 from fastapi.responses import JSONResponse, HTMLResponse
 from starlette.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from server.config import ServerConfig, SERVER_DIR
 from server.web.auth import require_admin, create_token, delete_token
@@ -40,10 +39,7 @@ from server.mc.bans import (
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
-_static_dir = Path(__file__).parent / "static"
 _template_dir = Path(__file__).parent / "templates"
-
-router.mount("/static", StaticFiles(directory=str(_static_dir)), name="admin_static")
 
 _INSTANCE_FIELD_META = {
     "name": {"label": "Server Name", "description": "Human-readable server name"},
@@ -1047,7 +1043,7 @@ async def upload_instance_files_batch(instance_id: str, request: Request, path: 
 @router.get("/java")
 async def list_java():
     from server.mc.java import get_cached
-    return [{"path": j.path, "version": j.version, "major": j.major_version, "vendor": j.vendor, "arch": j.arch} for j in get_cached()]
+    return [{"path": j.path, "version": j.version, "major": j.major_version, "vendor": j.vendor, "arch": j.arch, "source": j.source} for j in get_cached()]
 
 
 @router.post("/java/scan")
@@ -1056,8 +1052,90 @@ async def scan_java():
     runtimes = do_scan()
     return {
         "found": len(runtimes),
-        "runtimes": [{"path": j.path, "version": j.version, "major": j.major_version, "vendor": j.vendor, "arch": j.arch} for j in runtimes],
+        "runtimes": [{"path": j.path, "version": j.version, "major": j.major_version, "vendor": j.vendor, "arch": j.arch, "source": j.source} for j in runtimes],
     }
+
+
+@router.get("/java/available")
+async def java_available():
+    from server.mc.java import get_vendors, get_platform
+    try:
+        vendors = await get_vendors()
+    except Exception as e:
+        return {"vendors": [], "platform": get_platform(), "error": str(e)}
+    return {"vendors": vendors, "platform": get_platform()}
+
+
+_java_tasks: dict[str, dict] = {}
+_java_tasks_lock = threading.Lock()
+
+
+def _java_progress_cb(task_id: str):
+    def cb(state: dict):
+        with _java_tasks_lock:
+            if task_id in _java_tasks:
+                _java_tasks[task_id].update(state)
+    return cb
+
+
+@router.post("/java/install")
+async def java_install(body: dict = Body(...)):
+    from server.mc.java import install_java
+    version = body.get("version")
+    vendor = body.get("vendor") or "temurin"
+    try:
+        version = int(version)
+    except (TypeError, ValueError):
+        return JSONResponse(content={"error": "Invalid version"}, status_code=400)
+
+    task_id = str(uuid.uuid4())
+    with _java_tasks_lock:
+        _java_tasks[task_id] = {"status": "starting", "current": 0, "total": 0, "message": "Starting...", "error": ""}
+
+    async def run():
+        try:
+            await install_java(version, vendor=vendor, progress_callback=_java_progress_cb(task_id))
+            with _java_tasks_lock:
+                if task_id in _java_tasks:
+                    _java_tasks[task_id]["status"] = "done"
+                    _java_tasks[task_id]["finished_at"] = time.time()
+        except Exception as e:
+            with _java_tasks_lock:
+                if task_id in _java_tasks:
+                    _java_tasks[task_id]["status"] = "error"
+                    _java_tasks[task_id]["error"] = str(e)
+                    _java_tasks[task_id]["finished_at"] = time.time()
+
+    asyncio.create_task(run())
+    return {"task_id": task_id}
+
+
+@router.get("/java/install/progress/{task_id}")
+async def java_install_progress(task_id: str):
+    with _java_tasks_lock:
+        state = _java_tasks.get(task_id)
+    if state is None:
+        return JSONResponse(content={"error": "Task not found"}, status_code=404)
+    resp = dict(state)
+    if state.get("status") in ("done", "error"):
+        def cleanup():
+            time.sleep(60)
+            with _java_tasks_lock:
+                _java_tasks.pop(task_id, None)
+        threading.Thread(target=cleanup, daemon=True).start()
+    return resp
+
+
+@router.post("/java/uninstall")
+async def java_uninstall(body: dict = Body(...)):
+    from server.mc.java import uninstall_java
+    path = body.get("path", "")
+    if not path:
+        return JSONResponse(content={"error": "Missing path"}, status_code=400)
+    ok = await asyncio.to_thread(uninstall_java, path)
+    if not ok:
+        return JSONResponse(content={"error": "Not a managed runtime"}, status_code=400)
+    return {"status": "removed"}
 
 
 # ── Modpack management ──
@@ -1730,8 +1808,9 @@ async def import_progress(project_id: str, modpack_id: str, task_id: str):
     resp = {k: v for k, v in state.items() if k != "result"}
     if state.get("status") in ("done", "error"):
         resp["result"] = state.get("result")
-        # Clean up completed tasks after returning
+        # Clean up completed tasks after a grace period so late polls still get the result
         def cleanup():
+            time.sleep(60)
             with _import_tasks_lock:
                 _import_tasks.pop(task_id, None)
         threading.Thread(target=cleanup, daemon=True).start()

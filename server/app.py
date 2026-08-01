@@ -1,8 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from server.auth.routes import router as auth_router, yggdrasil_router
 from server.web.admin import router as admin_router, _migrate_modpacks_from_json
@@ -26,6 +28,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Uroboros Server", version="2.0.0", lifespan=lifespan)
+
+_admin_static = Path(__file__).parent / "web" / "static"
+app.mount("/admin/static", StaticFiles(directory=str(_admin_static)), name="admin_static")
 
 
 @app.exception_handler(Exception)
