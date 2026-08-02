@@ -143,6 +143,44 @@ def _parse_players_from_output(mgr) -> Optional[dict]:
     return None
 
 
+def _server_proc(mgr):
+    if mgr is None or mgr.process is None or mgr.process.pid is None:
+        return None
+    import psutil
+    try:
+        top = psutil.Process(mgr.process.pid)
+    except Exception:
+        return None
+    candidates = [top]
+    try:
+        candidates.extend(top.children(recursive=True))
+    except Exception:
+        pass
+    best = top
+    best_rss = -1.0
+    for c in candidates:
+        try:
+            if "-jar" not in " ".join(c.cmdline()):
+                continue
+            rss = c.memory_info().rss
+        except Exception:
+            continue
+        if rss > best_rss:
+            best_rss = rss
+            best = c
+    return best
+
+
+def _cpu_percent(proc):
+    import psutil
+    logical = psutil.cpu_count(logical=True) or 1
+    try:
+        raw = proc.cpu_percent(interval=0.15)
+    except Exception:
+        raw = 0.0
+    return round(min(100.0, raw / logical), 1)
+
+
 def _instance_to_api(inst: InstanceModel) -> dict:
     mgr = get_manager_sync(inst)
     running = mgr is not None and mgr.is_running()
@@ -155,10 +193,12 @@ def _instance_to_api(inst: InstanceModel) -> dict:
         result["pid"] = mgr.process.pid
         try:
             import psutil
-            p = psutil.Process(mgr.process.pid)
-            result["cpu_percent"] = p.cpu_percent(interval=0)
-            result["memory_mb"] = round(p.memory_info().rss / 1024 / 1024, 1)
-            result["uptime_seconds"] = int(time.time() - p.create_time())
+            p = _server_proc(mgr)
+            if p is not None:
+                result["pid"] = p.pid
+                result["cpu_percent"] = _cpu_percent(p)
+                result["memory_mb"] = round(p.memory_info().rss / 1024 / 1024, 1)
+                result["uptime_seconds"] = int(time.time() - p.create_time())
         except Exception:
             pass
     return result
@@ -222,7 +262,9 @@ def _get_overview(inst: InstanceModel) -> dict:
 
     if running and mgr and mgr.process:
         try:
-            p = psutil.Process(mgr.process.pid)
+            p = _server_proc(mgr)
+            if p is None:
+                raise RuntimeError("no server process")
             with p.oneshot():
                 mem = p.memory_info()
                 cpu_times = p.cpu_times()
@@ -231,7 +273,6 @@ def _get_overview(inst: InstanceModel) -> dict:
                     "status": p.status(),
                     "create_time": p.create_time(),
                     "uptime_seconds": int(time.time() - p.create_time()),
-                    "cpu_percent": round(p.cpu_percent(interval=0.15), 1),
                     "cpu_time_user": round(cpu_times.user, 2),
                     "cpu_time_system": round(cpu_times.system, 2),
                     "memory_rss_mb": round(mem.rss / 1024 / 1024, 1),
@@ -242,14 +283,15 @@ def _get_overview(inst: InstanceModel) -> dict:
                     "executable": p.exe(),
                     "cwd": p.cwd(),
                 }
-                try:
-                    d["process"]["connections"] = len(p.connections())
-                except Exception:
-                    pass
-                try:
-                    d["process"]["open_files"] = len(p.open_files())
-                except Exception:
-                    pass
+            d["process"]["cpu_percent"] = _cpu_percent(p)
+            try:
+                d["process"]["connections"] = len(p.connections())
+            except Exception:
+                pass
+            try:
+                d["process"]["open_files"] = len(p.open_files())
+            except Exception:
+                pass
         except Exception:
             pass
 
