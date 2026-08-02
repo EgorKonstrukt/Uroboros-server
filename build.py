@@ -1,4 +1,5 @@
 import argparse
+import importlib.util
 import os
 import platform
 import shutil
@@ -43,7 +44,7 @@ def _confirm(question, default=False):
             return True
         if raw in ("n", "no"):
             return False
-        print("Введите 'y' или 'n'.")
+        print("Please answer 'y' or 'n'.")
 
 
 def _ask(question, default):
@@ -59,19 +60,19 @@ def _ask_int(question, default):
         try:
             return int(raw)
         except ValueError:
-            print("Введите целое число.")
+            print("Please enter an integer.")
 
 
 def _interactive(args):
     print("=" * 60)
-    print(f"Сборка {APP_NAME} v{APP_VERSION} ({PLATFORM_TAG})")
+    print(f"Building {APP_NAME} v{APP_VERSION} ({PLATFORM_TAG})")
     print("=" * 60)
     print()
-    args.onefile = _confirm("Собрать единый EXE-файл? (нет = папка onedir)", False)
-    args.clean = _confirm("Очистить папку вывода перед сборкой?", True)
-    args.jobs = _ask_int("Число параллельных задач (0 = авто)", 0)
-    args.output_dir = _ask("Папка вывода", str(DIST_DIR))
-    args.installer = _confirm("Создать инсталлятор Inno Setup после сборки?", True)
+    args.onefile = _confirm("Build a single EXE file? (no = onedir folder)", False)
+    args.clean = _confirm("Clean the output folder before building?", True)
+    args.jobs = _ask_int("Number of parallel jobs (0 = auto)", 0)
+    args.output_dir = _ask("Output folder", str(DIST_DIR))
+    args.installer = _confirm("Create Inno Setup installer after the build?", False)
     return args
 
 
@@ -158,7 +159,7 @@ def _generate_ico():
         ico_path.write_bytes(ico)
         return str(ico_path)
     except Exception as exc:
-        print(f"Не удалось сгенерировать иконку: {exc}")
+        print(f"Failed to generate icon: {exc}")
         return None
 
 
@@ -168,9 +169,9 @@ def _ensure_ico():
         return existing
     generated = _generate_ico()
     if generated:
-        print(f"Сгенерирована иконка: {generated}")
+        print(f"Generated icon: {generated}")
         return generated
-    print("Предупреждение: иконка не найдена, сборка будет без иконки.")
+    print("Warning: icon not found, building without an icon.")
     return None
 
 
@@ -224,7 +225,7 @@ def _write_iss(ico_path, source_path, output_dir):
         f'Name: "{{autodesktop}}\\{EXE_NAME}"; Filename: "{{app}}\\{EXE_NAME}.exe"; WorkingDir: "{{app}}"; Tasks: desktopicon',
         "",
         "[Run]",
-        f'Filename: "{{app}}\\{EXE_NAME}.exe"; Description: "Запустить {APP_NAME}"; Flags: postinstall nowait skipifsilent',
+        f'Filename: "{{app}}\\{EXE_NAME}.exe"; Description: "Run {APP_NAME}"; Flags: postinstall nowait skipifsilent',
     ]
     iss.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return str(iss)
@@ -245,22 +246,22 @@ def _build_installer(ico_path, dist_path, output_dir):
                 break
     if not iscc:
         iss = _write_iss(ico_path, dist_path, output_dir)
-        print("\nInno Setup не найден. Установите его: https://jrsoftware.org/isdl.php")
-        print("Затем повторите с флагом --installer или скомпилируйте .iss вручную.")
-        print(f"Файл скрипта установки: {iss}")
+        print("\nInno Setup not found. Install it from: https://jrsoftware.org/isdl.php")
+        print("Then rerun with --installer or compile the .iss file manually.")
+        print(f"Installer script file: {iss}")
         return
     iss = _write_iss(ico_path, dist_path, output_dir)
-    print(f"\nКомпиляция инсталлятора: {iscc}")
+    print(f"\nCompiling installer: {iscc}")
     result = subprocess.run([iscc, iss], cwd=str(ROOT))
     if result.returncode != 0:
-        print(f"\nОшибка компиляции инсталлятора (код {result.returncode})")
+        print(f"\nInstaller compilation failed (code {result.returncode})")
         sys.exit(result.returncode)
     installer = output_dir / f"{EXE_NAME}_Setup_v{APP_VERSION}_{PLATFORM_TAG}.exe"
     if installer.exists():
         size = installer.stat().st_size / 1024 / 1024
-        print(f"\nИнсталлятор создан: {installer} ({size:.1f} МБ)")
+        print(f"\nInstaller created: {installer} ({size:.1f} MB)")
     else:
-        print("\nПуть инсталлятора не найден после компиляции.")
+        print("\nInstaller path not found after compilation.")
 
 
 def _find_dist_dir(output_dir):
@@ -276,12 +277,17 @@ def _mb(size_bytes):
 
 def main():
     parser = argparse.ArgumentParser(description=f"{APP_NAME} Nuitka build")
-    parser.add_argument("--onefile", action="store_true", help="Единый EXE-файл (по умолчанию onedir)")
-    parser.add_argument("--output-dir", default=str(DIST_DIR), help="Папка вывода")
-    parser.add_argument("--clean", action="store_true", help="Очистить папку вывода перед сборкой")
-    parser.add_argument("--jobs", type=int, default=0, help="Число параллельных задач (0 = авто)")
-    parser.add_argument("--installer", action="store_true", help="Создать инсталлятор Inno Setup")
+    parser.add_argument("--onefile", action="store_true", help="Single EXE file (default is onedir)")
+    parser.add_argument("--output-dir", default=str(DIST_DIR), help="Output folder")
+    parser.add_argument("--clean", action="store_true", help="Clean the output folder before building")
+    parser.add_argument("--jobs", type=int, default=0, help="Number of parallel jobs (0 = auto)")
+    parser.add_argument("--installer", action="store_true", help="Create Inno Setup installer")
     known, remaining = parser.parse_known_args()
+
+    if importlib.util.find_spec("nuitka") is None:
+        print("Nuitka is not installed.")
+        print("Install it first with: python -m pip install nuitka")
+        sys.exit(1)
 
     if len(sys.argv) == 1:
         known = _interactive(known)
@@ -292,7 +298,7 @@ def main():
 
     if known.clean and OUTPUT_DIR.exists():
         shutil.rmtree(OUTPUT_DIR)
-        print(f"Папка очищена: {OUTPUT_DIR}")
+        print(f"Output folder cleaned: {OUTPUT_DIR}")
 
     cmd = [
         sys.executable,
@@ -308,7 +314,10 @@ def main():
         "--remove-output",
     ]
     if ico_path:
-        cmd.append(f"--windows-icon-from-ico={ico_path}")
+        if sys.platform == "win32":
+            cmd.append(f"--windows-icon-from-ico={ico_path}")
+        else:
+            cmd.append(f"--linux-icon={ico_path}")
     if known.onefile:
         cmd.append("--onefile")
     if known.jobs:
@@ -316,21 +325,21 @@ def main():
     cmd.append(str(ROOT / "server" / "main.py"))
 
     mode = "onefile" if known.onefile else "onedir"
-    print(f"\nСборка {APP_NAME} v{APP_VERSION} ({mode}, {PLATFORM_TAG})")
+    print(f"\nBuilding {APP_NAME} v{APP_VERSION} ({mode}, {PLATFORM_TAG})")
     print(f"Python: {sys.executable}")
-    print(f"Папка вывода: {OUTPUT_DIR}")
+    print(f"Output folder: {OUTPUT_DIR}")
     print()
 
     result = subprocess.run(cmd, cwd=str(ROOT))
 
     if result.returncode != 0:
-        print(f"\nСборка завершилась с ошибкой (код {result.returncode})")
+        print(f"\nBuild finished with an error (code {result.returncode})")
         sys.exit(result.returncode)
 
     if known.onefile:
         exe = OUTPUT_DIR / f"{EXE_NAME}.exe"
         if exe.exists():
-            print(f"\nСборка успешна! {exe} ({_mb(exe.stat().st_size):.1f} МБ)")
+            print(f"\nBuild successful! {exe} ({_mb(exe.stat().st_size):.1f} MB)")
         dist_path = str(exe)
     else:
         src_dir = _find_dist_dir(OUTPUT_DIR)
@@ -341,7 +350,7 @@ def main():
             src_dir.rename(dst_dir)
         if dst_dir.exists():
             total = sum(f.stat().st_size for f in dst_dir.rglob("*") if f.is_file())
-            print(f"\nСборка успешна! {dst_dir} ({_mb(total):.1f} МБ)")
+            print(f"\nBuild successful! {dst_dir} ({_mb(total):.1f} MB)")
         dist_path = str(dst_dir)
 
     if known.installer:

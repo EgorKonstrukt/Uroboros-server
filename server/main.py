@@ -3,6 +3,7 @@ import os
 import argparse
 import asyncio
 from pathlib import Path
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -75,6 +76,127 @@ def cmd_projects_list(args):
         loop.close()
 
 
+def _run_async(coro):
+    from server.database import init_db, close_db
+    from server.config import ServerConfig
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        db_path = Path(ServerConfig.load().db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        loop.run_until_complete(init_db(db_path))
+        from server.mc.registry import migrate_instances_from_json
+        migrate_instances_from_json()
+        loop.run_until_complete(coro)
+    finally:
+        try:
+            loop.run_until_complete(close_db())
+        except Exception:
+            pass
+        loop.close()
+
+
+async def _load_instances(instance_id):
+    from server.mc.registry import load_instances
+    instances = await load_instances()
+    if instance_id:
+        instances = [i for i in instances if i.id == instance_id]
+    if not instances:
+        print("No matching instances found")
+    return instances
+
+
+def _instance_address(inst):
+    host = "127.0.0.1"
+    port = 25565
+    props = {}
+    props_path = Path(inst.server_dir) / "server.properties"
+    if props_path.exists():
+        for line in props_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                props[key.strip()] = val.strip()
+    try:
+        port = int(props.get("server-port", "25565"))
+    except ValueError:
+        pass
+    ip = props.get("server-ip", "").strip()
+    if ip:
+        host = ip
+    else:
+        parsed = urlparse(inst.api_url or "")
+        if parsed.hostname:
+            host = parsed.hostname
+    return host, port
+
+
+async def _start_instances(instance_id):
+    from server.mc.registry import get_manager
+    instances = await _load_instances(instance_id)
+    for inst in instances:
+        if instance_id is None and not inst.enabled:
+            print(f"[{inst.id}] {inst.name}: disabled, skipping")
+            continue
+        mgr = await get_manager(inst.id)
+        if mgr is None:
+            continue
+        if mgr.is_running():
+            print(f"[{inst.id}] {inst.name}: already running (pid {mgr.process.pid})")
+            continue
+        try:
+            started = mgr.start()
+        except Exception as e:
+            print(f"[{inst.id}] {inst.name}: FAILED - {e}")
+            continue
+        if started:
+            print(f"[{inst.id}] {inst.name}: started (pid {mgr.process.pid})")
+        else:
+            print(f"[{inst.id}] {inst.name}: FAILED - {mgr.last_error or 'unknown error'}")
+
+
+async def _stop_instances(instance_id):
+    from server.mc.pidfile import stop_process
+    instances = await _load_instances(instance_id)
+    for inst in instances:
+        if stop_process(inst.id):
+            print(f"[{inst.id}] {inst.name}: stopped")
+        else:
+            print(f"[{inst.id}] {inst.name}: not running")
+
+
+async def _show_status(instance_id):
+    from server.mc.pidfile import is_running, read_pid_for
+    from server.mc.status import probe
+    instances = await _load_instances(instance_id)
+    for inst in instances:
+        running = is_running(inst.id)
+        pid = read_pid_for(inst.id)
+        if running:
+            print(f"[{inst.id}] {inst.name}: running (pid {pid})")
+            host, port = _instance_address(inst)
+            info = probe(host, port)
+            if info.get("online"):
+                print(f"  online: {info.get('players_online', 0)}/{info.get('players_max', 0)} players, "
+                      f"{info.get('latency_ms', 0)} ms")
+            else:
+                print(f"  no response on {host}:{port}")
+        else:
+            print(f"[{inst.id}] {inst.name}: stopped")
+
+
+def cmd_start(args):
+    _run_async(_start_instances(args.instance_id))
+
+
+def cmd_stop(args):
+    _run_async(_stop_instances(args.instance_id))
+
+
+def cmd_status(args):
+    _run_async(_show_status(args.instance_id))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Uroboros Server")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -88,6 +210,18 @@ def main():
 
     p_projects = sub.add_parser("projects", help="List projects")
     p_projects.set_defaults(func=cmd_projects_list)
+
+    p_start = sub.add_parser("start", help="Start Minecraft server(s)")
+    p_start.add_argument("instance_id", nargs="?", default=None)
+    p_start.set_defaults(func=cmd_start)
+
+    p_stop = sub.add_parser("stop", help="Stop Minecraft server(s)")
+    p_stop.add_argument("instance_id", nargs="?", default=None)
+    p_stop.set_defaults(func=cmd_stop)
+
+    p_status = sub.add_parser("status", help="Show Minecraft server status")
+    p_status.add_argument("instance_id", nargs="?", default=None)
+    p_status.set_defaults(func=cmd_status)
 
     args = parser.parse_args()
     args.func(args)
