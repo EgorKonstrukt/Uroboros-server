@@ -39,9 +39,11 @@ echo  [B] Build compiled version (Nuitka)
 echo  [A] Enable autostart
 echo  [R] Disable autostart
 echo  [P] Set admin password
+echo  [U] Update from GitHub
 echo  [Q] Quit
 echo.
-choice /c 1234SBARQP /n /m "Press a key to select: "
+choice /c 1234SBARQPU /n /m "Press a key to select: "
+if errorlevel 11 goto update
 if errorlevel 10 goto set_password
 if errorlevel 9 exit /b 0
 if errorlevel 8 goto remove_autostart
@@ -234,6 +236,14 @@ goto menu
 :set_password
 echo.
 "%RUNNER%" -m server set-admin-password
+call :hold
+goto menu
+
+:update
+echo.
+echo Checking for updates ...
+echo.
+"%RUNNER%" -m server update
 call :hold
 goto menu
 

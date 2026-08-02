@@ -1246,6 +1246,269 @@ async def core_install_cancel(task_id: str):
     return {"status": "cancelling"}
 
 
+# ── Uroboros self-update ──
+
+_update_check = {"running": False, "last": None, "error": None}
+_update_check_lock = threading.Lock()
+_update_run = None
+_update_run_lock = threading.Lock()
+
+
+@router.get("/update/status")
+async def update_status():
+    from server.version import APP_VERSION
+    from server.mc.registry import get_manager_sync, load_instances
+    from server.mc.pidfile import is_running as pid_running
+
+    running = []
+    try:
+        instances = await load_instances()
+        for inst in instances:
+            if not inst.enabled:
+                continue
+            mgr = get_manager_sync(inst)
+            if (mgr is not None and mgr.is_running()) or pid_running(inst.id):
+                running.append({"id": inst.id, "name": inst.name or inst.id})
+    except Exception:
+        pass
+
+    with _update_check_lock:
+        checking = _update_check["running"]
+        last = _update_check["last"]
+        check_error = _update_check["error"]
+    with _update_run_lock:
+        run = _update_run
+
+    backups = []
+    try:
+        from server.updater import BACKUP_DIR
+        if BACKUP_DIR.exists():
+            backups = sorted(
+                [p.name for p in BACKUP_DIR.glob("*.zip")],
+                reverse=True,
+            )[:10]
+    except Exception:
+        pass
+
+    run_data = None
+    if run is not None:
+        run_data = run["handle"].snapshot()
+        run_data["task_id"] = run["task_id"]
+
+    return {
+        "installed": APP_VERSION,
+        "checking": checking,
+        "last_check": last,
+        "check_error": check_error,
+        "running_servers": running,
+        "run": run_data,
+        "backups": backups,
+    }
+
+
+@router.post("/update/check")
+async def update_check():
+    with _update_check_lock:
+        if _update_check["running"]:
+            return {"checking": True}
+        _update_check["running"] = True
+        _update_check["error"] = None
+
+    def worker():
+        from server.updater import check as updater_check
+        info = None
+        try:
+            info = updater_check()
+        except Exception as e:
+            info = {"error": str(e), "update_available": False, "latest": None}
+        with _update_check_lock:
+            _update_check["running"] = False
+            if info is not None and not info.get("error"):
+                _update_check["last"] = info
+                _update_check["error"] = None
+            else:
+                _update_check["last"] = None
+                _update_check["error"] = (info or {}).get("error") or "Check failed"
+
+    threading.Thread(target=worker, daemon=True).start()
+    return {"checking": True}
+
+
+def _stop_instance_for_update(instance_id, inst):
+    from server.mc.registry import get_manager_sync
+    from server.mc.pidfile import stop_process
+    if inst is None:
+        return False
+    try:
+        mgr = get_manager_sync(inst)
+        if mgr is not None and mgr.is_running():
+            mgr.request_stop(timeout=30)
+            deadline = time.time() + 90
+            while time.time() < deadline and mgr.is_running():
+                time.sleep(0.5)
+            return not mgr.is_running()
+    except Exception:
+        pass
+    return stop_process(instance_id, timeout=30)
+
+
+def _start_instance_for_update(instance_id, inst):
+    from server.mc.registry import get_manager_sync
+    if inst is None:
+        return False
+    try:
+        mgr = get_manager_sync(inst)
+        return bool(mgr.start())
+    except Exception:
+        return False
+
+
+@router.post("/update/run")
+async def update_run(body: dict = Body(...)):
+    from server.mc.registry import get_manager_sync, load_instances
+    from server.mc.pidfile import is_running as pid_running
+
+    global _update_run
+
+    with _update_run_lock:
+        if _update_run is not None:
+            snap = _update_run["handle"].snapshot()
+            if snap.get("status") not in ("done", "error", "cancelled"):
+                return JSONResponse(content={"error": "An update is already running"}, status_code=409)
+
+    force = bool(body.get("force"))
+    stop_servers = bool(body.get("stop_servers", True))
+    restart_servers = bool(body.get("restart_servers", True))
+    install_requirements = bool(body.get("install_requirements", True))
+
+    task_id = str(uuid.uuid4())
+    cancel = threading.Event()
+    handle = DownloadHandle()
+    handle.update(
+        message="Preparing update ...", phase="prepare",
+        status="starting", options={
+            "force": force,
+            "stop_servers": stop_servers,
+            "restart_servers": restart_servers,
+            "install_requirements": install_requirements,
+        },
+    )
+    with _update_run_lock:
+        _update_run = {"task_id": task_id, "handle": handle, "cancel": cancel}
+
+    instances_by_id = {}
+    running_before = []
+    try:
+        instances = await load_instances()
+        for inst in instances:
+            instances_by_id[inst.id] = inst
+            if not inst.enabled:
+                continue
+            mgr = get_manager_sync(inst)
+            if (mgr is not None and mgr.is_running()) or pid_running(inst.id):
+                running_before.append(inst.id)
+    except Exception:
+        pass
+
+    def worker():
+        try:
+            from server.updater import (
+                check as updater_check,
+                perform_update,
+                UpdateCancelled,
+            )
+            info = None
+            with _update_check_lock:
+                if _update_check["last"] and not _update_check["error"]:
+                    info = _update_check["last"]
+            if info is None:
+                handle.update(status="working", phase="check", message="Checking for updates ...")
+                info = updater_check()
+            if info.get("error"):
+                raise RuntimeError(info["error"])
+            with _update_check_lock:
+                _update_check["last"] = info
+                _update_check["error"] = None
+            latest = info["latest"]
+            if not info["update_available"] and not force:
+                raise RuntimeError("No update available.")
+
+            stopped = []
+            if stop_servers:
+                for iid in running_before:
+                    handle.update(status="working", phase="stop", message=f"Stopping server {iid} ...")
+                    _stop_instance_for_update(iid, instances_by_id.get(iid))
+                    stopped.append(iid)
+                if stopped:
+                    handle.update(status="working", phase="stop", message=f"Stopped {len(stopped)} server(s).")
+            else:
+                handle.update(status="working", phase="stop", message="Proceeding with servers left running.")
+
+            def progress(msg, phase=None, current=None, total=None):
+                handle.update(
+                    status="working",
+                    phase=phase or "working",
+                    message=msg,
+                    current=current or 0,
+                    total=total or 0,
+                )
+
+            result = perform_update(
+                latest,
+                progress=progress,
+                cancel_event=cancel,
+                install_requirements=install_requirements,
+            )
+
+            restarted = []
+            if restart_servers:
+                handle.update(phase="restart", message="Restarting servers ...")
+                for iid in stopped:
+                    if _start_instance_for_update(iid, instances_by_id.get(iid)):
+                        restarted.append(iid)
+
+            handle.update(
+                status="done",
+                message="Update complete. Restart Uroboros Server to apply.",
+                phase="done",
+                current=1, total=1,
+                new_version=result["new_version"],
+                backup=result["backup"],
+                stopped=stopped,
+                restarted=restarted,
+                finished_at=time.time(),
+            )
+        except UpdateCancelled:
+            handle.update(status="cancelled", message="Update cancelled", phase="cancelled", finished_at=time.time())
+        except Exception as e:
+            handle.update(status="error", error=str(e), message="Update failed", phase="error", finished_at=time.time())
+        finally:
+            def cleanup():
+                global _update_run
+                time.sleep(60)
+                with _update_run_lock:
+                    if _update_run is not None and _update_run["task_id"] == task_id:
+                        _update_run = None
+            threading.Thread(target=cleanup, daemon=True).start()
+
+    threading.Thread(target=worker, daemon=True).start()
+    return {"task_id": task_id, "running_servers": running_before}
+
+
+@router.post("/update/cancel")
+async def update_cancel():
+    with _update_run_lock:
+        run = _update_run
+    if run is None:
+        return JSONResponse(content={"error": "No update in progress"}, status_code=400)
+    snap = run["handle"].snapshot()
+    if snap.get("status") in ("done", "error", "cancelled"):
+        return JSONResponse(content={"error": "Update already finished"}, status_code=400)
+    run["cancel"].set()
+    run["handle"].cancel()
+    return {"status": "cancelling"}
+
+
 # ── Modpack management ──
 
 PROJECTS_STORAGE = SERVER_DIR / "projects"
@@ -1931,7 +2194,7 @@ async def import_progress(project_id: str, modpack_id: str, task_id: str):
 # ── Dashboard pages ──
 
 _ADMIN_FRAGMENTS = (
-    "head", "projects", "servers", "players", "config", "java",
+    "head", "projects", "servers", "players", "config", "java", "update",
     "modals", "scripts",
 )
 

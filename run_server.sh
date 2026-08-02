@@ -291,6 +291,7 @@ while true; do
     echo " [A] Enable autostart"
     echo " [R] Disable autostart"
     echo " [P] Set admin password"
+    echo " [U] Update from GitHub"
     echo " [Q] Quit"
     echo
     read -n 1 -p "Press a key to select: " choice
@@ -346,6 +347,13 @@ while true; do
             ;;
         p|P)
             set_password
+            ;;
+        u|U)
+            echo
+            echo "Checking for updates ..."
+            echo
+            "$RUNNER" -m server update
+            hold
             ;;
         q|Q)
             exit 0

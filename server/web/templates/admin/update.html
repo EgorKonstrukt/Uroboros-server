@@ -1,0 +1,47 @@
+      <div id="updatePanel" class="panel">
+        <div class="panel-header">
+          <h3>Uroboros Update</h3>
+          <span class="panel-sub">Update the server software from GitHub</span>
+        </div>
+
+        <div class="md-card">
+          <div class="md-card-title">Software Status</div>
+          <div class="row">
+            <button class="btn btn-secondary" id="updCheckBtn" onclick="checkUpdateNow()">Check for updates</button>
+            <span id="updCheckStatus" class="status-text"></span>
+          </div>
+          <div class="upd-grid">
+            <div class="upd-item"><span class="upd-label">Installed</span><span class="upd-value" id="updInstalled">-</span></div>
+            <div class="upd-item"><span class="upd-label">Latest</span><span class="upd-value" id="updLatest">-</span></div>
+            <div class="upd-item"><span class="upd-label">Published</span><span class="upd-value" id="updPublished">-</span></div>
+            <div class="upd-item"><span class="upd-label">Source</span><span class="upd-value" id="updKind">-</span></div>
+          </div>
+          <div id="updNotice"></div>
+          <div id="updReleaseNotes" class="upd-notes" style="display:none"></div>
+        </div>
+
+        <div class="md-card">
+          <div class="md-card-title">Run Update</div>
+          <div id="updRunOptions">
+            <label class="upd-check"><input type="checkbox" id="updStopServers" checked> Stop running servers before updating</label>
+            <label class="upd-check"><input type="checkbox" id="updRestartServers" checked> Restart them after the update</label>
+            <label class="upd-check"><input type="checkbox" id="updInstallReq" checked> Install Python requirements after update</label>
+            <label class="upd-check"><input type="checkbox" id="updForce"> Force update even if version is the same</label>
+          </div>
+          <div id="updRunningServers" class="upd-warn" style="display:none"></div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn btn-start" id="updRunBtn" onclick="runUroborosUpdate()">Run Update</button>
+            <button class="btn btn-stop" id="updCancelBtn" onclick="cancelUroborosUpdate()" style="display:none">Cancel</button>
+          </div>
+          <div id="updProgress" style="display:none;margin-top:10px">
+            <div class="progress-bar"><div class="progress-fill" id="updFill" style="width:0%"></div></div>
+            <span id="updProgressText" class="status-text"></span>
+          </div>
+          <div id="updLog" class="upd-log" style="display:none"></div>
+        </div>
+
+        <div class="md-card">
+          <div class="md-card-title">Backups</div>
+          <div id="updBackups" class="status-text">None</div>
+        </div>
+      </div>

@@ -12,7 +12,7 @@ function switchTab(name) {
     document.getElementById(name + 'Panel').classList.add('active');
     var navItem = document.querySelector('.nav-item[data-tab="' + name + '"]');
     if (navItem) navItem.classList.add('active');
-    var titles = { projects: 'Projects', players: 'Players', config: 'Config', java: 'Java' };
+    var titles = { projects: 'Projects', players: 'Players', config: 'Config', java: 'Java', update: 'Update' };
     var titleEl = document.getElementById('pageTitle');
     if (titleEl) titleEl.textContent = titles[name] || name;
     var actions = document.getElementById('topActions');
@@ -21,6 +21,7 @@ function switchTab(name) {
     if (name === 'players') { loadPlayers(); }
     if (name === 'config') { loadGlobalConfig(); }
     if (name === 'java') { loadJavaRuntimes(); loadJavaAvailable(); }
+    if (name === 'update') { loadUpdateStatus(); }
 }
 
 function clearServerPolling() {

@@ -197,6 +197,18 @@ def cmd_status(args):
     _run_async(_show_status(args.instance_id))
 
 
+def cmd_update(args):
+    from server.updater import main as updater_main
+    argv = []
+    if args.check:
+        argv.append("--check")
+    if args.force:
+        argv.append("--force")
+    if args.yes:
+        argv.append("--yes")
+    sys.exit(updater_main(argv))
+
+
 def cmd_set_admin_password(args):
     from server.config import ServerConfig
     from server.auth.crypto import hash_password
@@ -252,6 +264,12 @@ def main():
     p_pass = sub.add_parser("set-admin-password", help="Set the admin panel password (interactive if no password given)")
     p_pass.add_argument("password", nargs="?")
     p_pass.set_defaults(func=cmd_set_admin_password)
+
+    p_update = sub.add_parser("update", help="Update Uroboros Server from GitHub")
+    p_update.add_argument("--check", action="store_true", help="Only check for updates")
+    p_update.add_argument("--force", action="store_true", help="Apply even if version is the same")
+    p_update.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
+    p_update.set_defaults(func=cmd_update)
 
     args = parser.parse_args()
     args.func(args)

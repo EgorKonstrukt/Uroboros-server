@@ -111,3 +111,19 @@ html:not(.theme-dark) .console-status{color:#57606a}
 .core-note{font-size:12px;color:var(--warning-text);background:var(--warning-tint);border-radius:var(--radius);padding:8px 12px;margin:8px 0 0}
 .core-progress{margin-top:12px}
 .core-progress-text{color:var(--text-secondary);font-size:13px;display:block;margin-top:6px}
+
+/* ===== Uroboros self-update ===== */
+.upd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:12px}
+.upd-item{display:flex;flex-direction:column;gap:2px;background:var(--surface-variant);border-radius:var(--radius);padding:10px 14px}
+.upd-label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-hint);font-weight:600}
+.upd-value{font-size:14px;font-weight:600;color:var(--on-surface);word-break:break-all}
+.upd-avail{font-size:13px;color:var(--success-text);background:var(--success-tint);border:1px solid var(--success);border-radius:var(--radius);padding:10px 14px;margin-top:12px}
+.upd-ok{font-size:13px;color:var(--text-secondary);background:var(--hover-strong);border-radius:var(--radius);padding:10px 14px;margin-top:12px}
+.upd-muted{font-size:13px;color:var(--text-hint);padding:10px 14px;margin-top:12px}
+.upd-error{font-size:13px;color:var(--error);background:var(--error-tint);border:1px solid var(--error-border);border-radius:var(--radius);padding:10px 14px;margin-top:12px;word-break:break-word}
+.upd-notes{font-size:13px;color:var(--text-secondary);background:var(--surface-variant);border-radius:var(--radius);padding:12px 14px;margin-top:8px;white-space:pre-wrap;word-break:break-word;max-height:240px;overflow-y:auto;line-height:1.5}
+.upd-warn{font-size:13px;color:var(--warning-text);background:var(--warning-tint);border:1px solid var(--warning);border-radius:var(--radius);padding:10px 14px;margin-top:12px;word-break:break-word}
+.upd-check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);padding:4px 0;cursor:pointer}
+.upd-check input{width:16px;height:16px;cursor:pointer;accent-color:var(--primary)}
+.upd-log{font:12px/1.6 var(--mono);background:var(--surface-variant);border-radius:var(--radius);padding:12px 14px;margin-top:10px;color:var(--text-secondary);word-break:break-all}
+.upd-backup{font:12px var(--mono);padding:2px 0;color:var(--text-secondary);word-break:break-all}
