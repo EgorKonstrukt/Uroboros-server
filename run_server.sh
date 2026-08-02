@@ -12,68 +12,143 @@ ensure_python() {
     fi
     if command -v python3.13 >/dev/null 2>&1; then
         PY="$(command -v python3.13)"
-        return 0
-    fi
-    if command -v python3 >/dev/null 2>&1; then
+    elif command -v python3 >/dev/null 2>&1; then
         PY="$(command -v python3)"
+    fi
+
+    if [ -z "$PY" ]; then
+        echo "[INFO] Python 3 not found. Installing ..."
+        if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update >/dev/null 2>&1
+            sudo apt-get install -y python3.13 python3.13-venv python3-pip >/dev/null 2>&1 \
+                || sudo apt-get install -y python3 python3-venv python3-pip >/dev/null 2>&1
+        elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y python3.13 python3-pip >/dev/null 2>&1 \
+                || sudo dnf install -y python3 python3-pip >/dev/null 2>&1
+        elif command -v yum >/dev/null 2>&1; then
+            sudo yum install -y python3 python3-pip >/dev/null 2>&1
+        elif command -v pacman >/dev/null 2>&1; then
+            sudo pacman -Sy --noconfirm python python-pip >/dev/null 2>&1
+        elif command -v zypper >/dev/null 2>&1; then
+            sudo zypper install -y python3 python3-pip >/dev/null 2>&1
+        else
+            echo "[ERROR] No supported package manager found. Install Python 3 manually."
+            return 1
+        fi
+        if command -v python3.13 >/dev/null 2>&1; then
+            PY="$(command -v python3.13)"
+        elif command -v python3 >/dev/null 2>&1; then
+            PY="$(command -v python3)"
+        fi
+        if [ -z "$PY" ]; then
+            echo "[ERROR] Python installation failed. Install Python 3 manually."
+            return 1
+        fi
+    fi
+    return 0
+}
+
+_fetch() {
+    # _fetch <url> <dest>
+    local url="$1" dest="$2"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url" -o "$dest"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$dest" "$url"
+    else
+        "$PY" -c "import urllib.request, sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "$url" "$dest"
+    fi
+}
+
+_ensure_venv_pip() {
+    # Make sure the given venv python has pip; bootstrap it via get-pip.py if needed.
+    local vpython="$1"
+    if "$vpython" -m pip --version >/dev/null 2>&1; then
         return 0
     fi
-    echo "[INFO] Python 3 not found. Installing ..."
-    if command -v apt-get >/dev/null 2>&1; then
-        sudo apt-get update >/dev/null 2>&1
-        sudo apt-get install -y python3.13 python3.13-venv python3-pip >/dev/null 2>&1 \
-            || sudo apt-get install -y python3 python3-venv python3-pip >/dev/null 2>&1
-    elif command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y python3.13 python3-pip >/dev/null 2>&1 \
-            || sudo dnf install -y python3 python3-pip >/dev/null 2>&1
-    elif command -v yum >/dev/null 2>&1; then
-        sudo yum install -y python3 python3-pip >/dev/null 2>&1
-    elif command -v pacman >/dev/null 2>&1; then
-        sudo pacman -Sy --noconfirm python python-pip >/dev/null 2>&1
-    elif command -v zypper >/dev/null 2>&1; then
-        sudo zypper install -y python3 python3-pip >/dev/null 2>&1
-    else
-        echo "[ERROR] No supported package manager found. Install Python 3 manually."
+    echo "[INFO] Installing pip into the virtual environment ..."
+    local tmp
+    tmp="$(mktemp -d)"
+    if _fetch "https://bootstrap.pypa.io/get-pip.py" "$tmp/get-pip.py" && [ -s "$tmp/get-pip.py" ]; then
+        "$vpython" "$tmp/get-pip.py" >/dev/null 2>&1
+        rm -rf "$tmp"
+        if "$vpython" -m pip --version >/dev/null 2>&1; then
+            return 0
+        fi
+        echo "[ERROR] Could not install pip into the virtual environment."
         return 1
     fi
-    if command -v python3.13 >/dev/null 2>&1; then
-        PY="$(command -v python3.13)"
-        return 0
-    fi
-    if command -v python3 >/dev/null 2>&1; then
-        PY="$(command -v python3)"
-        return 0
-    fi
-    echo "[ERROR] Python installation failed. Install Python 3 manually."
+    rm -rf "$tmp"
+    echo "[ERROR] Could not download get-pip.py. Check your network."
     return 1
+}
+
+_bootstrap_pip_user() {
+    # Install pip for $PY into the user site (no sudo or package manager needed).
+    echo "[INFO] Installing pip for $PY (user install) ..."
+    local tmp
+    tmp="$(mktemp -d)"
+    if _fetch "https://bootstrap.pypa.io/get-pip.py" "$tmp/get-pip.py" && [ -s "$tmp/get-pip.py" ]; then
+        "$PY" "$tmp/get-pip.py" --user --break-system-packages >/dev/null 2>&1
+        local rc=$?
+        rm -rf "$tmp"
+        return $rc
+    fi
+    rm -rf "$tmp"
+    echo "[ERROR] Could not download get-pip.py. Check your network."
+    return 1
+}
+
+_user_pip_install() {
+    # Install with --user, retrying with --break-system-packages for PEP 668 systems.
+    "$RUNNER" -m pip install --user "$@" >/dev/null 2>&1 && return 0
+    "$RUNNER" -m pip install --user --break-system-packages "$@"
 }
 
 ensure_venv() {
     RUNNER=""
     USER_MODE=""
+
     if [ ! -f ".venv/bin/python" ]; then
+        if [ -d ".venv" ]; then
+            echo "[INFO] Recreating broken virtual environment ..."
+            rm -rf .venv
+        fi
         echo "[INFO] Creating virtual environment ..."
         "$PY" -m venv .venv >/dev/null 2>&1 || true
     fi
+
     if [ -f ".venv/bin/python" ]; then
-        RUNNER=".venv/bin/python"
-    else
-        echo "[WARN] Could not create venv. Using system Python."
-        echo "       Packages will be installed for the current user only."
+        if _ensure_venv_pip ".venv/bin/python"; then
+            RUNNER=".venv/bin/python"
+        else
+            echo "[WARN] Could not set up pip in the virtual environment."
+        fi
+    fi
+
+    if [ -z "$RUNNER" ]; then
+        echo "[WARN] Using system Python. Packages will be installed for the current user only."
         RUNNER="$PY"
         USER_MODE="1"
+        if ! "$RUNNER" -m pip --version >/dev/null 2>&1; then
+            _bootstrap_pip_user || {
+                echo "[ERROR] Could not install pip. Check your network and rerun."
+                return 1
+            }
+        fi
     fi
+
     if "$RUNNER" -c "import fastapi,uvicorn,sqlalchemy,aiosqlite,pydantic,aiohttp,requests,psutil,multipart" >/dev/null 2>&1; then
         return 0
     fi
     echo "[INFO] Installing dependencies (first run) ..."
     if [ -n "$USER_MODE" ]; then
-        "$PY" -m pip install --user --upgrade pip >/dev/null 2>&1
-        "$PY" -m pip install --user -r requirements.txt || {
-            echo "[ERROR] Failed to install dependencies."
-            return 1
-        }
-        return 0
+        "$RUNNER" -m pip install --user --upgrade pip >/dev/null 2>&1
+        if _user_pip_install -r requirements.txt; then
+            return 0
+        fi
+        echo "[ERROR] Failed to install dependencies."
+        return 1
     fi
     "$RUNNER" -m pip install --upgrade pip >/dev/null 2>&1
     if "$RUNNER" -m pip install -r requirements.txt >/dev/null 2>&1; then
@@ -82,10 +157,11 @@ ensure_venv() {
     echo "[WARN] Install into venv failed. Trying --user ..."
     RUNNER="$PY"
     USER_MODE="1"
-    "$PY" -m pip install --user -r requirements.txt || {
+    if ! _user_pip_install -r requirements.txt; then
         echo "[ERROR] Failed to install dependencies."
         return 1
-    }
+    fi
+    return 0
 }
 
 killport() {

@@ -1,5 +1,7 @@
+import sys
 import json
 import secrets
+import getpass
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
@@ -19,6 +21,7 @@ class ServerConfig:
     db_path: str = ""
     admin_password: str = ""
     admin_password_plain: str = ""
+    admin_password_set: bool = False
     log_level: str = "info"
     curseforge_api_key: str = ""
     ssl_certfile: str = ""
@@ -61,10 +64,42 @@ class ServerConfig:
             inst.admin_password_plain = inst.admin_password_plain or plain
             inst.save()
 
+        if inst.admin_password and not inst.admin_password_set:
+            # Migrate configs created before the admin_password_set flag existed
+            inst.admin_password_set = True
+            inst.save()
+
         return inst
 
     def _ensure_secure_password(self):
         generated = secrets.token_urlsafe(12)
         self.admin_password = hash_password(generated)
         self.admin_password_plain = generated
+        self.admin_password_set = True
         print(f"[Uroboros] Generated admin panel password: {generated}")
+
+    def setup_admin_password(self):
+        """Interactive first-run setup of the admin panel password."""
+        print("[Uroboros] First run detected - set the admin panel password.")
+        try:
+            if not sys.stdin.isatty():
+                raise EOFError
+            while True:
+                p1 = getpass.getpass("Admin panel password (min 8 characters): ")
+                if len(p1) < 8:
+                    print("Too short - need at least 8 characters.")
+                    continue
+                p2 = getpass.getpass("Confirm admin panel password: ")
+                if p1 != p2:
+                    print("Passwords do not match, try again.")
+                    continue
+                break
+        except (EOFError, KeyboardInterrupt):
+            self._ensure_secure_password()
+            self.save()
+            return
+        self.admin_password_plain = p1
+        self.admin_password = hash_password(p1)
+        self.admin_password_set = True
+        self.save()
+        print("[Uroboros] Admin panel password saved.")

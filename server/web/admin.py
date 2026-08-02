@@ -543,7 +543,8 @@ _GLOBAL_FIELD_META = {
     "host": {"label": "Bind Host", "description": "IP address for the HTTP server"},
     "port": {"label": "Port", "description": "HTTP server port"},
     "db_path": {"label": "Database Path", "description": "SQLite database file location"},
-    "admin_password": {"label": "Admin Password", "description": "Password to protect this panel (auto-generated if empty)"},
+    "admin_password": {"label": "Admin Password", "description": "Password to protect this panel (unchanged if left empty)"},
+    "admin_password_set": {"label": "Admin Password Set", "description": "Whether the admin panel password is set (turning it off asks for a new password on next start)"},
     "log_level": {"label": "Log Level", "description": "Logging verbosity"},
     "curseforge_api_key": {"label": "CurseForge API Key", "description": "API key for CurseForge mod resolution (optional)"},
     "stats_refresh_seconds": {"label": "Overview Refresh Rate", "description": "How often the server overview auto-refreshes (seconds, 1-60)"},
@@ -599,10 +600,11 @@ async def update_config(body: dict):
         if key == "admin_password":
             if isinstance(value, str) and value.strip():
                 cfg.admin_password_plain = value
+                cfg.admin_password_set = True
                 value = hash_password(value)
             else:
-                value = ""
-                cfg.admin_password_plain = ""
+                # Empty password field means "unchanged"
+                continue
         elif expected is bool:
             if isinstance(value, str):
                 value = value.lower() in ("true", "1", "yes")

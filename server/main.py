@@ -15,11 +15,8 @@ def cmd_run(args):
     import uvicorn
 
     cfg = ServerConfig.load()
-    if cfg.admin_password:
-        if cfg.admin_password_plain:
-            print(f"[Uroboros] Admin panel password: {cfg.admin_password_plain}")
-        else:
-            print("[Uroboros] Admin panel password: (set manually, not stored in plaintext)")
+    if not cfg.admin_password_set:
+        cfg.setup_admin_password()
     db_path = Path(cfg.db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
