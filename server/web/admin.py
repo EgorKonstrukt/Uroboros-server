@@ -143,6 +143,41 @@ def _parse_players_from_output(mgr) -> Optional[dict]:
     return None
 
 
+_TPS_RE = re.compile(r"TPS from last 1m, 5m, 15m:\s*([\d.]+)", re.IGNORECASE)
+_TPS_MS_RE = re.compile(r"Server tick time:\s*([\d.]+)ms average", re.IGNORECASE)
+_TPS_LAG_RE = re.compile(r"Running\s+(\d+)ms\s+or\s+(\d+) ticks behind", re.IGNORECASE)
+
+
+def _parse_tps_from_output(mgr) -> Optional[float]:
+    if mgr is None:
+        return None
+    for line in reversed(mgr.get_output(500)):
+        m = _TPS_RE.search(line)
+        if m:
+            return min(20.0, float(m.group(1)))
+        m = _TPS_MS_RE.search(line)
+        if m:
+            return min(20.0, 1000.0 / max(float(m.group(1)), 1.0))
+        m = _TPS_LAG_RE.search(line)
+        if m:
+            ms = float(m.group(1))
+            ticks = float(m.group(2))
+            if ms > 0 and ticks > 0:
+                return min(20.0, ticks * 1000.0 / ms)
+    return None
+
+
+def _tps_probe_command(inst: InstanceModel) -> Optional[str]:
+    fname = (inst.server_filename or "").lower()
+    if "arclight" in fname or "forge" in fname:
+        return "/forge tps"
+    if "neoforge" in fname:
+        return "/tps"
+    if any(k in fname for k in ("paper", "purpur", "spigot", "craftbukkit", "bukkit")):
+        return "/tps"
+    return None
+
+
 def _server_proc(mgr):
     if mgr is None or mgr.process is None or mgr.process.pid is None:
         return None
@@ -204,12 +239,25 @@ def _instance_to_api(inst: InstanceModel) -> dict:
     return result
 
 
+_tps_last_probe: dict[str, float] = {}
+_tps_probe_lock = threading.Lock()
+_TPS_PROBE_INTERVAL = 20.0
+
+
 def _get_overview(inst: InstanceModel, players: Optional[dict] = None) -> dict:
     import psutil
     import platform
 
     mgr = get_manager_sync(inst)
     running = mgr is not None and mgr.is_running()
+    if running:
+        cmd = _tps_probe_command(inst)
+        if cmd:
+            with _tps_probe_lock:
+                now = time.monotonic()
+                if now - _tps_last_probe.get(inst.id, 0.0) >= _TPS_PROBE_INTERVAL:
+                    _tps_last_probe[inst.id] = now
+                    mgr.send_command(cmd)
 
     cfg = instance_model_to_dict(inst)
     for key in ("created_at", "last_error"):
@@ -227,6 +275,7 @@ def _get_overview(inst: InstanceModel, players: Optional[dict] = None) -> dict:
         "starting": bool(mgr and mgr.is_starting()),
         "last_error": mgr.last_error if mgr else None,
         "players": players if players is not None else _parse_players_from_output(mgr),
+        "tps": _parse_tps_from_output(mgr) if running else None,
         "log_lines": len(mgr.get_output(0)) if mgr else 0,
         "last_output": (mgr.get_output(1)[-1] if mgr and mgr.get_output(1) else None),
         "config": cfg,

@@ -53,7 +53,8 @@ function pushSample(id, d) {
         mem: d.process ? d.process.memory_rss_mb : 0,
         cpu: d.process ? d.process.cpu_percent : 0,
         players: d.players ? d.players.online : 0,
-        playersMax: d.players ? d.players.max : null
+        playersMax: d.players ? d.players.max : null,
+        tps: d.tps != null ? Math.min(20, d.tps) : null
     });
     if (arr.length > OVERVIEW_MAX_SAMPLES) {
         overviewSamplesById[id] = arr.slice(-OVERVIEW_MAX_SAMPLES);
@@ -97,6 +98,7 @@ function renderOverview(d) {
     tiles.push({ label: 'PID', value: p ? p.pid : '—', sub: p ? p.status : 'n/a' });
     tiles.push({ label: 'Uptime', value: p ? fmtUptime(p.uptime_seconds) : '—', sub: p ? 'since ' + fmtDate(p.create_time) : '' });
     tiles.push({ label: 'Players', value: players ? players.online + '/' + players.max : '—', sub: players ? 'online / max' : 'no data' });
+    tiles.push({ label: 'TPS', value: d.tps != null ? Math.min(20, d.tps).toFixed(1) : '—', sub: d.tps != null ? 'ticks / second' : 'no data' });
     tiles.push({ label: 'CPU', value: p ? p.cpu_percent + '%' : '—', sub: p ? p.cpu_time_user + 's user' : '' });
     tiles.push({ label: 'Memory', value: p ? p.memory_rss_mb + ' MB' : '—', sub: p ? p.memory_percent + '% of system' : '' });
     tiles.push({ label: 'Threads', value: p ? p.num_threads : '—', sub: p && p.connections != null ? p.connections + ' conns' : '' });
@@ -176,9 +178,11 @@ function renderOverview(d) {
     var memSub = document.getElementById('ovMemSub');
     var cpuSub = document.getElementById('ovCpuSub');
     var plSub = document.getElementById('ovPlayersSub');
+    var tpsSub = document.getElementById('ovTpsSub');
     memSub.textContent = p ? 'RSS ' + p.memory_rss_mb + ' MB · VMS ' + p.memory_vms_mb + ' MB' : 'no process';
     cpuSub.textContent = p ? 'process ' + p.cpu_percent + '%' : 'no process';
     plSub.textContent = players ? players.online + ' of ' + players.max + ' slots' : 'no data';
+    tpsSub.textContent = d.tps != null ? 'last ' + Math.min(20, d.tps).toFixed(1) : 'no data';
 }
 
 function detailCard(title, rows) {
@@ -194,32 +198,34 @@ function renderCharts() {
     var id = currentServerId;
     var samples = overviewSamplesById[id] || [];
     var last = overviewLastDataById[id] || null;
-    var mem = overviewCharts.mem, cpu = overviewCharts.cpu, pl = overviewCharts.pl;
-    if (!mem || !cpu || !pl) return;
+    var mem = overviewCharts.mem, cpu = overviewCharts.cpu, pl = overviewCharts.pl, tps = overviewCharts.tps;
+    if (!mem || !cpu || !pl || !tps) return;
     var memMax = 128;
     if (last && last.process) {
         memMax = Math.max(last.process.memory_rss_mb * 1.15, last.config.max_memory, 128);
     } else if (last && last.config && last.config.max_memory) {
         memMax = last.config.max_memory;
     }
-    var mp = [], cp = [], pp = [];
+    var mp = [], cp = [], pp = [], tp = [];
     for (var i = 0; i < samples.length; i++) {
         var s = samples[i];
         mp.push({ t: s.t, v: s.mem });
         cp.push({ t: s.t, v: s.cpu });
         pp.push({ t: s.t, v: s.players });
+        if (s.tps != null) tp.push({ t: s.t, v: s.tps });
     }
     mem.setData(mp, memMax);
     cpu.setData(cp, 100);
     var plMax = 5;
     if (last && last.players && last.players.max > 0) plMax = last.players.max;
     pl.setData(pp, Math.max(plMax, 5));
+    tps.setData(tp, 20);
 }
 
 function initOverviewCharts() {
     if (overviewChartsReady) return;
     overviewChartsReady = true;
-    var ids = { mem: 'ovMemChart', cpu: 'ovCpuChart', pl: 'ovPlayersChart' };
+    var ids = { mem: 'ovMemChart', cpu: 'ovCpuChart', pl: 'ovPlayersChart', tps: 'ovTpsChart' };
     var defs = {
         mem: {
             colorVar: '--primary',
@@ -246,6 +252,12 @@ function initOverviewCharts() {
             gridFormat: function (v) { return String(Math.round(v)); },
             chipFormat: function (v) { return String(Math.round(v)); },
             tipFormat: function (v) { return Math.round(v) + ' players'; }
+        },
+        tps: {
+            colorVar: '--warning',
+            gridFormat: function (v) { return v.toFixed(1); },
+            chipFormat: function (v) { return v.toFixed(1); },
+            tipFormat: function (v) { return v.toFixed(1) + ' TPS'; }
         }
     };
     for (var key in defs) {
