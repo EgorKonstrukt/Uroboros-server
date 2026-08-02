@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy import select, or_
 
 from server.database import get_session
+from server.mc.config import default_server_dir
 from server.models import UserBanModel, InstanceModel, UserModel
 
 BANNED_PLAYERS_FILE = "banned-players.json"
@@ -177,7 +178,7 @@ def _write_ban_file(server_dir: Path, entries: list):
 
 
 async def sync_instance_bans(inst) -> dict:
-    server_dir = Path(inst.server_dir)
+    server_dir = Path(inst.server_dir or default_server_dir(inst.id))
     rows = await _bans_for(inst.id)
     users = await _affected_users(rows)
     entries = [

@@ -107,8 +107,10 @@ async function installJava() {
     if (!vendor) { toast('Select a vendor', 'error'); return; }
     if (!version) { toast('Select a Java version', 'error'); return; }
     var btn = document.getElementById('javaInstallBtn');
+    var cancelBtn = document.getElementById('javaInstallCancelBtn');
     var progress = document.getElementById('javaInstallProgress');
     btn.disabled = true;
+    cancelBtn.style.display = 'inline-flex';
     progress.style.display = 'block';
     var fill = document.getElementById('javaInstallFill');
     var txt = document.getElementById('javaInstallText');
@@ -120,16 +122,18 @@ async function installJava() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ version: version, vendor: vendor })
         });
-        if (!r) { btn.disabled = false; progress.style.display = 'none'; return; }
+        if (!r) { btn.disabled = false; cancelBtn.style.display = 'none'; progress.style.display = 'none'; return; }
         var d = await r.json();
         if (d.error) {
             txt.innerHTML = '<span style="color:#d32f2f">Error: ' + esc(d.error) + '</span>';
             toast('Install failed', 'error');
             btn.disabled = false;
+            cancelBtn.style.display = 'none';
             setTimeout(function () { progress.style.display = 'none'; }, 5000);
             return;
         }
         var taskId = d.task_id;
+        cancelBtn.dataset.taskId = taskId;
         var pollUrl = '/admin/java/install/progress/' + taskId;
         var startedAt = Date.now();
         var done = false;
@@ -138,6 +142,8 @@ async function installJava() {
             done = true;
             clearInterval(pollTimer);
             btn.disabled = false;
+            cancelBtn.style.display = 'none';
+            cancelBtn.dataset.taskId = '';
             loadJavaRuntimes();
             if (successMsg) {
                 fill.style.width = '100%';
@@ -145,12 +151,14 @@ async function installJava() {
                 setTimeout(function () { progress.style.display = 'none'; }, 2500);
             }
         };
-        var fail = function (msg) {
+        var fail = function (msg, color) {
             if (done) return;
             done = true;
             clearInterval(pollTimer);
             btn.disabled = false;
-            txt.innerHTML = '<span style="color:#d32f2f">' + esc(msg) + '</span>';
+            cancelBtn.style.display = 'none';
+            cancelBtn.dataset.taskId = '';
+            txt.innerHTML = '<span style="color:' + (color || '#d32f2f') + '">' + esc(msg) + '</span>';
             setTimeout(function () { progress.style.display = 'none'; }, 5000);
         };
         var pollTimer = setInterval(async function() {
@@ -173,6 +181,8 @@ async function installJava() {
                     finish('Java ' + esc(String(version)) + ' installed successfully');
                 } else if (ps.status === 'error') {
                     fail('Install failed: ' + (ps.error || 'Unknown error'));
+                } else if (ps.status === 'cancelled') {
+                    fail('Install cancelled', '#6a737d');
                 }
             } catch (e) {
                 fail('Poll error: ' + e.message);
@@ -181,7 +191,26 @@ async function installJava() {
     } catch (e) {
         txt.innerHTML = '<span style="color:#d32f2f">Error: ' + esc(e.message) + '</span>';
         btn.disabled = false;
+        cancelBtn.style.display = 'none';
         setTimeout(function () { progress.style.display = 'none'; }, 5000);
+    }
+}
+
+async function cancelJavaInstall() {
+    var btn = document.getElementById('javaInstallCancelBtn');
+    if (!btn.dataset.taskId) return;
+    btn.disabled = true;
+    try {
+        var r = await apiFetch('/admin/java/install/cancel/' + btn.dataset.taskId, { method: 'POST' });
+        if (r) {
+            var d = await r.json();
+            if (d && d.error) { toast(d.error, 'error'); btn.disabled = false; return; }
+        }
+        document.getElementById('javaInstallText').textContent = 'Cancelling...';
+        toast('Cancelling download...', 'info');
+    } catch (e) {
+        toast('Cancel failed: ' + e.message, 'error');
+        btn.disabled = false;
     }
 }
 

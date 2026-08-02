@@ -103,3 +103,11 @@ html:not(.theme-dark) .console-bottom{background:#f0f0f0;border-top-color:var(--
 html:not(.theme-dark) .console-bottom input{background:#ffffff;color:#24292f;border-color:var(--divider)}
 html:not(.theme-dark) .console-bottom input::placeholder{color:#8b949e}
 html:not(.theme-dark) .console-status{color:#57606a}
+
+/* ===== Server core installer ===== */
+.core-status{font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.7}
+.core-status b{color:var(--on-surface)}
+.core-status code{background:var(--hover-bg);padding:2px 6px;border-radius:4px;font:12px var(--mono);word-break:break-all}
+.core-note{font-size:12px;color:var(--warning-text);background:var(--warning-tint);border-radius:var(--radius);padding:8px 12px;margin:8px 0 0}
+.core-progress{margin-top:12px}
+.core-progress-text{color:var(--text-secondary);font-size:13px;display:block;margin-top:6px}

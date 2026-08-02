@@ -9,6 +9,7 @@
             <select id="javaVendorSelect" class="config-input" style="width:auto;min-width:200px" onchange="loadJavaVersions()"></select>
             <select id="javaVersionSelect" class="config-input" style="width:auto;min-width:160px"></select>
             <button class="btn btn-start" id="javaInstallBtn" onclick="installJava()">Install</button>
+            <button class="btn btn-stop" id="javaInstallCancelBtn" onclick="cancelJavaInstall()" style="display:none">Cancel</button>
             <span id="javaInstallPlatform" class="status-text"></span>
           </div>
           <div id="javaInstallProgress" style="display:none;margin-top:8px">

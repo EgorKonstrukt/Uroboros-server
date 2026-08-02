@@ -4,6 +4,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from server.database import get_session
+from server.mc.config import default_server_dir
 from server.models import InstanceModel, UserModel
 
 WHITE_LIST_KEY = "white-list"
@@ -44,7 +45,7 @@ async def _load_whitelisted_users():
 
 
 async def sync_instance_whitelist(inst: InstanceModel) -> dict:
-    server_dir = Path(inst.server_dir)
+    server_dir = Path(inst.server_dir or default_server_dir(inst.id))
     server_dir.mkdir(parents=True, exist_ok=True)
 
     if not inst.whitelist_enabled:

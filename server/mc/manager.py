@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, Callable, List
 
 from server.mc.auth_plugin import create_server_auth_plugin, ServerAuthPlugin
+from server.mc.config import default_server_dir
 from server.mc.pidfile import write_pid_for, clear_pid_for
 
 
@@ -62,12 +63,18 @@ class ServerManager:
             offset = max(0, start - first_available)
             return history[offset:]
 
+    def _server_dir(self) -> Path:
+        raw = self.config.server_dir or default_server_dir(self.config.id)
+        path = Path(raw)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def _preflight_check(self) -> Optional[str]:
         if not self.config.server_filename:
             return "Server JAR filename is not configured"
         if not self.config.java_executable_path:
             return "Java executable path is not configured"
-        server_dir = Path(self.config.server_dir) if self.config.server_dir else Path.cwd()
+        server_dir = self._server_dir()
         jar_path = server_dir / self.config.server_filename
         if not jar_path.exists():
             return f"Server JAR not found at {jar_path}"
@@ -81,7 +88,7 @@ class ServerManager:
         if not self.config.api_url:
             return None
         filename = (self.config.injector_filename or "authlib-injector.jar").strip() or "authlib-injector.jar"
-        server_dir = Path(self.config.server_dir) if self.config.server_dir else Path.cwd()
+        server_dir = self._server_dir()
         jar_path = server_dir / filename
         if jar_path.exists():
             return None
@@ -97,8 +104,7 @@ class ServerManager:
         """Force online-mode=true so the injector auth flow works."""
         if not self.config.api_url:
             return
-        server_dir = Path(self.config.server_dir).resolve() if self.config.server_dir else Path.cwd().resolve()
-        server_dir.mkdir(parents=True, exist_ok=True)
+        server_dir = self._server_dir()
         props_path = server_dir / "server.properties"
         lines = []
         found = False
@@ -121,7 +127,7 @@ class ServerManager:
             pass
 
     def _build_command(self) -> List[str]:
-        server_dir = Path(self.config.server_dir) if self.config.server_dir else Path.cwd()
+        server_dir = self._server_dir()
         server_path = server_dir / self.config.server_filename
 
         cmd = [
@@ -133,7 +139,7 @@ class ServerManager:
         if self.config.additional_flags:
             cmd.extend(self.config.additional_flags.split())
 
-        cmd = self.auth_plugin.apply(cmd, self.config.api_url, self.config.server_dir)
+        cmd = self.auth_plugin.apply(cmd, self.config.api_url, str(server_dir))
         cmd.extend(["-jar", str(server_path)])
 
         if self.config.arguments:
@@ -144,8 +150,7 @@ class ServerManager:
     def _accept_eula(self):
         if not getattr(self.config, "auto_accept_eula", False):
             return
-        server_dir = Path(self.config.server_dir).resolve() if self.config.server_dir else Path.cwd().resolve()
-        server_dir.mkdir(parents=True, exist_ok=True)
+        server_dir = self._server_dir()
         eula_path = server_dir / "eula.txt"
         if not eula_path.exists() or "eula=false" in eula_path.read_text(encoding="utf-8", errors="replace"):
             eula_path.write_text("eula=true\n", encoding="utf-8")
@@ -169,8 +174,8 @@ class ServerManager:
                 return False
 
             self._accept_eula()
-            server_dir = self.config.server_dir or str(Path.cwd())
-            Path(server_dir).mkdir(parents=True, exist_ok=True)
+            server_dir = self._server_dir()
+            cwd = str(server_dir)
 
             cmd = self._build_command()
 
@@ -183,7 +188,7 @@ class ServerManager:
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    cwd=server_dir,
+                    cwd=cwd,
                     bufsize=1,
                     universal_newlines=True,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,

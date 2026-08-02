@@ -30,7 +30,8 @@ from server.mc.registry import (
     add_instance, remove_instance, update_instance,
     get_manager, get_manager_sync, reload_manager,
 )
-from server.mc.config import instance_model_to_dict, dict_to_instance_model
+from server.mc.config import instance_model_to_dict, dict_to_instance_model, default_server_dir
+from server.mc.download import DownloadCancelled, DownloadHandle
 from server.mc.pidfile import is_running
 from server.mc.whitelist import sync_instance_whitelist, sync_all_whitelists
 from server.mc.bans import (
@@ -211,7 +212,7 @@ def _get_overview(inst: InstanceModel) -> dict:
             "memory_available_mb": round(vm.available / 1024 / 1024, 1),
             "memory_percent": round(vm.percent, 1),
         }
-        server_dir = inst.server_dir or str(Path.cwd())
+        server_dir = inst.server_dir or default_server_dir(inst.id)
         du = psutil.disk_usage(server_dir)
         d["system"]["disk_total_gb"] = round(du.total / 1e9, 2)
         d["system"]["disk_used_gb"] = round(du.used / 1e9, 2)
@@ -304,6 +305,7 @@ async def create_instance(body: dict):
     inst = InstanceModel(id=iid, name=name)
     inst = dict_to_instance_model(body, inst)
     if await add_instance(inst):
+        Path(inst.server_dir).mkdir(parents=True, exist_ok=True)
         return _instance_to_api(inst)
     return JSONResponse(content={"error": "Failed to create"}, status_code=500)
 
@@ -1066,16 +1068,8 @@ async def java_available():
     return {"vendors": vendors, "platform": get_platform()}
 
 
-_java_tasks: dict[str, dict] = {}
+_java_tasks: dict[str, DownloadHandle] = {}
 _java_tasks_lock = threading.Lock()
-
-
-def _java_progress_cb(task_id: str):
-    def cb(state: dict):
-        with _java_tasks_lock:
-            if task_id in _java_tasks:
-                _java_tasks[task_id].update(state)
-    return cb
 
 
 @router.post("/java/install")
@@ -1089,22 +1083,21 @@ async def java_install(body: dict = Body(...)):
         return JSONResponse(content={"error": "Invalid version"}, status_code=400)
 
     task_id = str(uuid.uuid4())
+    handle = DownloadHandle()
+    handle.update(message="Starting Java install...")
     with _java_tasks_lock:
-        _java_tasks[task_id] = {"status": "starting", "current": 0, "total": 0, "message": "Starting...", "error": ""}
+        _java_tasks[task_id] = handle
 
     async def run():
         try:
-            await install_java(version, vendor=vendor, progress_callback=_java_progress_cb(task_id))
-            with _java_tasks_lock:
-                if task_id in _java_tasks:
-                    _java_tasks[task_id]["status"] = "done"
-                    _java_tasks[task_id]["finished_at"] = time.time()
+            await install_java(version, vendor=vendor, handle=handle)
+            if handle.cancelled:
+                raise DownloadCancelled()
+            handle.update(status="done", message="Java install complete", finished_at=time.time())
+        except DownloadCancelled:
+            handle.update(status="cancelled", message="Install cancelled", finished_at=time.time())
         except Exception as e:
-            with _java_tasks_lock:
-                if task_id in _java_tasks:
-                    _java_tasks[task_id]["status"] = "error"
-                    _java_tasks[task_id]["error"] = str(e)
-                    _java_tasks[task_id]["finished_at"] = time.time()
+            handle.update(status="error", error=str(e), message="Install failed", finished_at=time.time())
 
     asyncio.create_task(run())
     return {"task_id": task_id}
@@ -1113,17 +1106,27 @@ async def java_install(body: dict = Body(...)):
 @router.get("/java/install/progress/{task_id}")
 async def java_install_progress(task_id: str):
     with _java_tasks_lock:
-        state = _java_tasks.get(task_id)
-    if state is None:
+        handle = _java_tasks.get(task_id)
+    if handle is None:
         return JSONResponse(content={"error": "Task not found"}, status_code=404)
-    resp = dict(state)
-    if state.get("status") in ("done", "error"):
+    resp = handle.snapshot()
+    if resp.get("status") in ("done", "error", "cancelled"):
         def cleanup():
             time.sleep(60)
             with _java_tasks_lock:
                 _java_tasks.pop(task_id, None)
         threading.Thread(target=cleanup, daemon=True).start()
     return resp
+
+
+@router.post("/java/install/cancel/{task_id}")
+async def java_install_cancel(task_id: str):
+    with _java_tasks_lock:
+        handle = _java_tasks.get(task_id)
+    if handle is None:
+        return JSONResponse(content={"error": "Task not found"}, status_code=404)
+    handle.cancel()
+    return {"status": "cancelling"}
 
 
 @router.post("/java/uninstall")
@@ -1136,6 +1139,111 @@ async def java_uninstall(body: dict = Body(...)):
     if not ok:
         return JSONResponse(content={"error": "Not a managed runtime"}, status_code=400)
     return {"status": "removed"}
+
+
+# ── Server cores ──
+
+@router.get("/cores/types")
+async def core_types():
+    from server.mc.core import get_core_types
+    return get_core_types()
+
+
+@router.get("/cores/{core_id}/versions")
+async def core_versions(core_id: str):
+    from server.mc.core import get_core_versions
+    try:
+        versions = await get_core_versions(core_id)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+    return {"core": core_id, "versions": versions}
+
+
+@router.get("/cores/{core_id}/versions/{version}/builds")
+async def core_builds(core_id: str, version: str):
+    from server.mc.core import get_core_builds
+    try:
+        builds = await get_core_builds(core_id, version)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+    return {"core": core_id, "version": version, "builds": builds}
+
+
+_core_tasks: dict[str, DownloadHandle] = {}
+_core_tasks_lock = threading.Lock()
+
+
+@router.post("/cores/install")
+async def core_install(body: dict = Body(...)):
+    from server.mc.core import install_server_core, get_core_types
+    instance_id = body.get("instance_id", "")
+    core = body.get("core", "")
+    version = body.get("version", "")
+    build = body.get("build") or None
+    loader_version = body.get("loader_version") or None
+    filename = body.get("filename") or None
+    if not instance_id or not core or not version:
+        return JSONResponse(content={"error": "instance_id, core and version are required"}, status_code=400)
+    if not any(t["id"] == core for t in get_core_types()):
+        return JSONResponse(content={"error": f"Unknown core type: {core}"}, status_code=400)
+    inst = await get_instance(instance_id)
+    if inst is None:
+        return JSONResponse(content={"error": "Instance not found"}, status_code=404)
+
+    task_id = str(uuid.uuid4())
+    handle = DownloadHandle()
+    handle.update(message=f"Starting {core} install...", core=core, version=version)
+    with _core_tasks_lock:
+        _core_tasks[task_id] = handle
+
+    async def run():
+        try:
+            result = await install_server_core(
+                inst, core, version,
+                build=build, loader_version=loader_version, filename=filename,
+                handle=handle,
+            )
+            if handle.cancelled:
+                raise DownloadCancelled()
+            fresh = await get_instance(instance_id)
+            if fresh is not None:
+                fresh.server_filename = result["server_filename"]
+                fresh.version = result["version"]
+                await update_instance(fresh)
+            handle.update(status="done", message="Core install complete", finished_at=time.time(), **result)
+        except DownloadCancelled:
+            handle.update(status="cancelled", message="Install cancelled", finished_at=time.time())
+        except Exception as e:
+            handle.update(status="error", error=str(e), message="Install failed", finished_at=time.time())
+
+    asyncio.create_task(run())
+    return {"task_id": task_id}
+
+
+@router.get("/cores/install/progress/{task_id}")
+async def core_install_progress(task_id: str):
+    with _core_tasks_lock:
+        handle = _core_tasks.get(task_id)
+    if handle is None:
+        return JSONResponse(content={"error": "Task not found"}, status_code=404)
+    resp = handle.snapshot()
+    if resp.get("status") in ("done", "error", "cancelled"):
+        def cleanup():
+            time.sleep(60)
+            with _core_tasks_lock:
+                _core_tasks.pop(task_id, None)
+        threading.Thread(target=cleanup, daemon=True).start()
+    return resp
+
+
+@router.post("/cores/install/cancel/{task_id}")
+async def core_install_cancel(task_id: str):
+    with _core_tasks_lock:
+        handle = _core_tasks.get(task_id)
+    if handle is None:
+        return JSONResponse(content={"error": "Task not found"}, status_code=404)
+    handle.cancel()
+    return {"status": "cancelling"}
 
 
 # ── Modpack management ──

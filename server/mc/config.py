@@ -1,7 +1,11 @@
-from pathlib import Path
 from typing import Optional
 
+from server.config import SERVER_DIR
 from server.models import InstanceModel
+
+
+def default_server_dir(instance_id: str) -> str:
+    return str(SERVER_DIR / "servers" / (instance_id or "default"))
 
 
 def instance_model_to_dict(inst: InstanceModel) -> dict:
@@ -11,7 +15,7 @@ def instance_model_to_dict(inst: InstanceModel) -> dict:
         "project_id": inst.project_id or "",
         "modpack_id": inst.modpack_id or "",
         "enabled": inst.enabled,
-        "server_dir": inst.server_dir or str(Path.cwd()),
+        "server_dir": inst.server_dir or default_server_dir(inst.id),
         "server_filename": inst.server_filename,
         "java_executable_path": inst.java_executable_path,
         "max_memory": inst.max_memory,
@@ -42,5 +46,5 @@ def dict_to_instance_model(data: dict, instance: Optional[InstanceModel] = None)
         if key in data:
             setattr(instance, key, data[key])
     if not instance.server_dir:
-        instance.server_dir = str(Path.cwd())
+        instance.server_dir = default_server_dir(instance.id)
     return instance

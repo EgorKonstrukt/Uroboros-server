@@ -1,12 +1,11 @@
 import threading
-from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import select
 
 from server.database import get_session
 from server.models import InstanceModel
-from server.mc.config import instance_model_to_dict, dict_to_instance_model
+from server.mc.config import instance_model_to_dict, dict_to_instance_model, default_server_dir
 from server.mc.manager import ServerManager
 
 
@@ -152,7 +151,7 @@ def migrate_instances_from_json():
                     name=item.get("name", "Default Server"),
                     project_id=item.get("project_id", ""),
                     enabled=item.get("enabled", True),
-                    server_dir=item.get("server_dir", str(Path.cwd())),
+                    server_dir=item.get("server_dir", default_server_dir(item.get("id", "default"))),
                     server_filename=item.get("server_filename", "server.jar"),
                     java_executable_path=item.get("java_executable_path", "java"),
                     max_memory=item.get("max_memory", 2048),

@@ -216,6 +216,7 @@ function switchServerSubTab(tab) {
     if (tab === 'overview') { startOverview(); }
     else { stopOverview(); }
     if (tab === 'settings') loadServerSettings();
+    if (tab === 'core') loadCoreTab();
     if (tab === 'files') serverFM.load('');
 }
 
@@ -606,3 +607,266 @@ var serverFM = new FileManager({
         searchInput: 'serverFmSearchInput'
     }
 });
+
+/* ===================== Server core installer ===================== */
+
+var coreTypesLoaded = false;
+var currentCoreType = null;
+var coreInstallPollTimer = null;
+
+function renderCoreCurrentInfo(d) {
+    var el = document.getElementById('coreCurrentInfo');
+    if (!el) return;
+    if (d && d.version) {
+        el.innerHTML = 'Current: <b>' + esc(d.server_filename || '?') + '</b> (MC ' + esc(d.version) + ')' +
+            (d.server_dir ? '<br>Directory: <code>' + esc(d.server_dir) + '</code>' : '');
+    } else {
+        el.innerHTML = 'No core installed yet. Install one below.';
+    }
+}
+
+async function loadCoreTab() {
+    renderCoreCurrentInfo(null);
+    try {
+        var r = await apiFetch('/admin/instances/' + currentServerId + '/status');
+        if (r) {
+            var d = await r.json();
+            renderCoreCurrentInfo(d);
+        }
+    } catch (e) {}
+    if (coreTypesLoaded) return;
+    try {
+        var r2 = await apiFetch('/admin/cores/types');
+        if (!r2) return;
+        var types = await r2.json();
+        var sel = document.getElementById('coreTypeSelect');
+        sel.innerHTML = '<option value="">(select)</option>';
+        for (var i = 0; i < types.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = types[i].id;
+            opt.textContent = types[i].label;
+            opt.title = types[i].description || '';
+            sel.appendChild(opt);
+        }
+        coreTypesLoaded = true;
+    } catch (e) { toast('Failed to load core types: ' + e.message, 'error'); }
+}
+
+function setCoreBusy(busy) {
+    document.getElementById('coreInstallBtn').disabled = busy;
+    document.getElementById('coreTypeSelect').disabled = busy;
+    document.getElementById('coreVersionSelect').disabled = busy;
+    document.getElementById('coreBuildSelect').disabled = busy;
+    document.getElementById('coreLoaderSelect').disabled = busy;
+    document.getElementById('coreFilenameInput').disabled = busy;
+}
+
+function setCoreCancelBtn(show) {
+    var cancelBtn = document.getElementById('coreInstallCancelBtn');
+    cancelBtn.style.display = show ? 'inline-flex' : 'none';
+    cancelBtn.disabled = false;
+    if (!show) cancelBtn.dataset.taskId = '';
+}
+
+async function cancelCoreInstall() {
+    var btn = document.getElementById('coreInstallCancelBtn');
+    if (!btn.dataset.taskId) return;
+    btn.disabled = true;
+    try {
+        var r = await apiFetch('/admin/cores/install/cancel/' + btn.dataset.taskId, { method: 'POST' });
+        if (r) {
+            var d = await r.json();
+            if (d && d.error) { toast(d.error, 'error'); btn.disabled = false; return; }
+        }
+        document.getElementById('coreProgressText').textContent = 'Cancelling...';
+        toast('Cancelling download...', 'info');
+    } catch (e) {
+        toast('Cancel failed: ' + e.message, 'error');
+        btn.disabled = false;
+    }
+}
+
+function onCoreTypeChange() {
+    var core = document.getElementById('coreTypeSelect').value;
+    currentCoreType = core;
+    document.getElementById('coreBuildSelect').style.display = 'none';
+    document.getElementById('coreLoaderSelect').style.display = 'none';
+    document.getElementById('coreNote').style.display = 'none';
+    document.getElementById('coreInstallBtn').disabled = !core;
+    var verSel = document.getElementById('coreVersionSelect');
+    verSel.disabled = !core;
+    verSel.innerHTML = '<option value="">Loading...</option>';
+    if (!core) return;
+    apiFetch('/admin/cores/' + encodeURIComponent(core) + '/versions').then(function (r) {
+        if (!r) return;
+        return r.json();
+    }).then(function (d) {
+        if (!d) return;
+        if (d.error) { toast(d.error, 'error'); verSel.innerHTML = '<option value="">(error)</option>'; return; }
+        verSel.innerHTML = '';
+        for (var i = 0; i < d.versions.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = d.versions[i].version;
+            opt.textContent = d.versions[i].label;
+            verSel.appendChild(opt);
+        }
+        onCoreVersionChange();
+    }).catch(function (e) {
+        toast('Failed to load versions: ' + e.message, 'error');
+        verSel.innerHTML = '<option value="">(error)</option>';
+    });
+}
+
+function onCoreVersionChange() {
+    var core = currentCoreType;
+    var version = document.getElementById('coreVersionSelect').value;
+    document.getElementById('coreBuildSelect').style.display = 'none';
+    document.getElementById('coreLoaderSelect').style.display = 'none';
+    var note = document.getElementById('coreNote');
+    note.style.display = 'none';
+    var btn = document.getElementById('coreInstallBtn');
+    btn.disabled = !core || !version;
+    if (!core || !version) return;
+    if (core === 'spigot' || core === 'bukkit') {
+        note.innerHTML = 'Spigot/Bukkit are built on this machine with BuildTools. This requires Java 8-21 and can take a very long time (10+ minutes).';
+        note.style.display = 'block';
+    }
+    if (core === 'paper' || core === 'purpur') {
+        apiFetch('/admin/cores/' + encodeURIComponent(core) + '/versions/' + encodeURIComponent(version) + '/builds').then(function (r) {
+            if (!r) return;
+            return r.json();
+        }).then(function (d) {
+            if (!d || d.error) { document.getElementById('coreBuildSelect').style.display = 'none'; return; }
+            var sel = document.getElementById('coreBuildSelect');
+            sel.innerHTML = '<option value="">Latest</option>';
+            var rec = null;
+            for (var i = 0; i < d.builds.length; i++) {
+                var opt = document.createElement('option');
+                opt.value = d.builds[i].id;
+                opt.textContent = d.builds[i].label;
+                sel.appendChild(opt);
+                if (d.builds[i].recommended && !rec) rec = d.builds[i].id;
+            }
+            if (rec) sel.value = rec;
+            sel.style.display = '';
+        }).catch(function () { document.getElementById('coreBuildSelect').style.display = 'none'; });
+    } else if (core === 'fabric' || core === 'quilt' || core === 'forge' || core === 'neoforge') {
+        apiFetch('/admin/cores/' + encodeURIComponent(core) + '/versions/' + encodeURIComponent(version) + '/builds').then(function (r) {
+            if (!r) return;
+            return r.json();
+        }).then(function (d) {
+            if (!d || d.error) { document.getElementById('coreLoaderSelect').style.display = 'none'; return; }
+            var sel = document.getElementById('coreLoaderSelect');
+            sel.innerHTML = '<option value="">Latest recommended</option>';
+            var rec = null;
+            for (var i = 0; i < d.builds.length; i++) {
+                var opt = document.createElement('option');
+                opt.value = d.builds[i].id;
+                opt.textContent = d.builds[i].label + (d.builds[i].recommended ? ' (recommended)' : '');
+                sel.appendChild(opt);
+                if (d.builds[i].recommended && !rec) rec = d.builds[i].id;
+            }
+            if (rec) sel.value = rec;
+            sel.style.display = '';
+        }).catch(function () { document.getElementById('coreLoaderSelect').style.display = 'none'; });
+    }
+}
+
+async function startCoreInstall() {
+    if (!currentServerId || !currentCoreType) return;
+    var version = document.getElementById('coreVersionSelect').value;
+    if (!version) { toast('Select a Minecraft version', 'error'); return; }
+    var core = currentCoreType;
+    var isBuildCore = core === 'paper' || core === 'purpur';
+    var isLoaderCore = core === 'fabric' || core === 'quilt' || core === 'forge' || core === 'neoforge';
+    var build = isBuildCore ? document.getElementById('coreBuildSelect').value : '';
+    var loader = isLoaderCore ? document.getElementById('coreLoaderSelect').value : '';
+    var filename = document.getElementById('coreFilenameInput').value.trim();
+    var body = { instance_id: currentServerId, core: core, version: version };
+    if (build) body.build = build;
+    if (loader) body.loader_version = loader;
+    if (filename) body.filename = filename;
+    setCoreBusy(true);
+    setCoreCancelBtn(true);
+    var prog = document.getElementById('coreProgress');
+    var fill = document.getElementById('coreProgressFill');
+    prog.style.display = 'block';
+    fill.style.width = '0%';
+    document.getElementById('coreProgressText').textContent = 'Starting...';
+    try {
+        var r = await apiFetch('/admin/cores/install', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!r) return;
+        var d = await r.json();
+        if (d.error) {
+            toast(d.error, 'error');
+            setCoreBusy(false);
+            setCoreCancelBtn(false);
+            prog.style.display = 'none';
+            return;
+        }
+        document.getElementById('coreInstallCancelBtn').dataset.taskId = d.task_id;
+        pollCoreInstall(d.task_id);
+    } catch (e) {
+        toast('Failed to start install: ' + e.message, 'error');
+        setCoreBusy(false);
+        setCoreCancelBtn(false);
+        prog.style.display = 'none';
+    }
+}
+
+function pollCoreInstall(taskId) {
+    var fill = document.getElementById('coreProgressFill');
+    var text = document.getElementById('coreProgressText');
+    if (coreInstallPollTimer) clearInterval(coreInstallPollTimer);
+    coreInstallPollTimer = setInterval(function () {
+        apiFetch('/admin/cores/install/progress/' + taskId).then(function (r) {
+            if (!r) return;
+            return r.json();
+        }).then(function (d) {
+            if (!d || d.error) return;
+            text.textContent = d.message || d.status || '';
+            if (d.status === 'error') {
+                clearInterval(coreInstallPollTimer);
+                coreInstallPollTimer = null;
+                setCoreBusy(false);
+                setCoreCancelBtn(false);
+                toast('Core install failed: ' + (d.error || 'Unknown error'), 'error');
+                return;
+            }
+            if (d.status === 'cancelled') {
+                clearInterval(coreInstallPollTimer);
+                coreInstallPollTimer = null;
+                setCoreBusy(false);
+                setCoreCancelBtn(false);
+                text.textContent = 'Install cancelled';
+                toast('Core install cancelled', 'info');
+                return;
+            }
+            if (d.status === 'done') {
+                clearInterval(coreInstallPollTimer);
+                coreInstallPollTimer = null;
+                setCoreBusy(false);
+                setCoreCancelBtn(false);
+                var fname = d.server_filename || '';
+                fill.style.width = '100%';
+                text.textContent = 'Installed: ' + fname + ' (MC ' + (d.version || '') + ')';
+                toast('Core installed: ' + fname, 'success');
+                renderCoreCurrentInfo({ server_filename: fname, version: d.version, server_dir: d.path || '' });
+                refreshServerStatus();
+                return;
+            }
+            if (d.total > 0 && d.current > 0) {
+                var pct = Math.min(100, Math.round(d.current / d.total * 100));
+                fill.style.width = pct + '%';
+            } else if (d.status === 'downloading') {
+                fill.style.width = '30%';
+            } else if (d.status === 'installing') {
+                fill.style.width = '60%';
+            }
+        }).catch(function () {});
+    }, 1000);
+}

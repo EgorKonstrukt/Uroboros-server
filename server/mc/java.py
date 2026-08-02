@@ -10,9 +10,10 @@ import uuid
 import zipfile
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import List, Optional
 
 from server.config import SERVER_DIR
+from server.mc.download import DownloadCancelled, DownloadHandle
 
 
 JAVA_DIR = SERVER_DIR / "java"
@@ -459,91 +460,76 @@ async def _latest_for_vendor(vendor: str, version: int, plat: dict) -> dict:
     return await fn(version, plat)
 
 
-async def _download_file(session, url: str, dest: Path, total: int, cb):
-    import aiohttp
-    async with session.get(url, timeout=aiohttp.ClientTimeout(total=3600)) as resp:
-        if resp.status != 200:
-            raise RuntimeError(f"Download failed (HTTP {resp.status})")
-        size = total or int(resp.headers.get("Content-Length") or 0)
-        downloaded = 0
-        with open(dest, "wb") as f:
-            async for chunk in resp.content.iter_chunked(256 * 1024):
-                f.write(chunk)
-                downloaded += len(chunk)
-                if cb:
-                    cb({"status": "downloading", "current": downloaded, "total": size,
-                        "message": f"Downloading {downloaded // 1048576} MB / {max(size, 1) // 1048576} MB"})
-        if cb:
-            cb({"status": "downloading", "current": size, "total": size, "message": "Download complete"})
-
-
-def _extract_archive(path: Path, dest: Path, is_zip: bool, cb):
+def _extract_archive(path: Path, dest: Path, is_zip: bool, handle: Optional[DownloadHandle]):
+    if handle is None:
+        handle = DownloadHandle()
     if is_zip:
         with zipfile.ZipFile(path) as zf:
             members = zf.infolist()
             total = len(members)
             for i, member in enumerate(members):
+                if handle.cancelled:
+                    raise DownloadCancelled()
                 try:
                     zf.extract(member, dest, filter="data")
                 except TypeError:
                     zf.extract(member, dest)
-                if cb and i % 20 == 0:
-                    cb({"status": "extracting", "current": i, "total": total,
-                        "message": f"Extracting {i}/{total}"})
-            if cb:
-                cb({"status": "extracting", "current": total, "total": total, "message": "Extraction complete"})
+                if i % 20 == 0:
+                    handle.update(status="extracting", current=i, total=total,
+                                  message=f"Extracting {i}/{total}")
+            handle.update(status="extracting", current=total, total=total, message="Extraction complete")
     else:
         import tarfile
         with tarfile.open(path, "r:*") as tf:
             members = tf.getmembers()
             total = len(members)
             for i, member in enumerate(members):
+                if handle.cancelled:
+                    raise DownloadCancelled()
                 try:
                     tf.extract(member, dest, filter="tar")
                 except TypeError:
                     tf.extract(member, dest)
-                if cb and i % 20 == 0:
-                    cb({"status": "extracting", "current": i, "total": total,
-                        "message": f"Extracting {i}/{total}"})
-            if cb:
-                cb({"status": "extracting", "current": total, "total": total, "message": "Extraction complete"})
+                if i % 20 == 0:
+                    handle.update(status="extracting", current=i, total=total,
+                                  message=f"Extracting {i}/{total}")
+            handle.update(status="extracting", current=total, total=total, message="Extraction complete")
 
 
 async def install_java(
     version: int,
     vendor: str = "temurin",
-    progress_callback: Optional[Callable[[dict], None]] = None,
+    handle: Optional[DownloadHandle] = None,
 ) -> JavaRuntime:
+    if handle is None:
+        handle = DownloadHandle()
     plat = get_platform()
-    import aiohttp
 
     asset = await _latest_for_vendor(vendor, version, plat)
     download_url = asset["url"]
     total_size = asset["size"]
     is_zip = download_url.endswith(".zip")
 
-    async with aiohttp.ClientSession() as session:
-        JAVA_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_root = JAVA_DIR / f"__tmp_{uuid.uuid4().hex}"
-        tmp_root.mkdir(parents=True)
-        archive_path = tmp_root / f"jdk{version}{'.zip' if is_zip else '.tar.gz'}"
-        try:
-            if progress_callback:
-                progress_callback({"status": "downloading", "current": 0, "total": total_size,
-                                   "message": f"Resolving {asset['name']}..."})
-            await _download_file(session, download_url, archive_path, total_size, progress_callback)
-            await asyncio.to_thread(_extract_archive, archive_path, tmp_root, is_zip, progress_callback)
-            jb = _find_java_bin(tmp_root)
-            if jb is None:
-                raise RuntimeError("Installed JDK does not contain a java binary")
-            root_dir = jb.parent.parent
-            final_name = root_dir.name or f"jdk-{version}"
-            dest = JAVA_DIR / final_name
-            if dest.exists():
-                dest = JAVA_DIR / f"{final_name}-{uuid.uuid4().hex[:6]}"
-            shutil.move(str(root_dir), str(dest))
-        finally:
-            shutil.rmtree(tmp_root, ignore_errors=True)
+    JAVA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_root = JAVA_DIR / f"__tmp_{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True)
+    archive_path = tmp_root / f"jdk{version}{'.zip' if is_zip else '.tar.gz'}"
+    try:
+        handle.update(status="downloading", current=0, total=total_size,
+                      message=f"Resolving {asset['name']}...")
+        await handle.download(download_url, archive_path)
+        await asyncio.to_thread(_extract_archive, archive_path, tmp_root, is_zip, handle)
+        jb = _find_java_bin(tmp_root)
+        if jb is None:
+            raise RuntimeError("Installed JDK does not contain a java binary")
+        root_dir = jb.parent.parent
+        final_name = root_dir.name or f"jdk-{version}"
+        dest = JAVA_DIR / final_name
+        if dest.exists():
+            dest = JAVA_DIR / f"{final_name}-{uuid.uuid4().hex[:6]}"
+        shutil.move(str(root_dir), str(dest))
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
 
     jb = _find_java_bin(dest)
     jr = _probe_java(str(jb))
