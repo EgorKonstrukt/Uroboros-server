@@ -1,11 +1,11 @@
-/* ===================== Server Overview ===================== */
-
 var overviewTimer = null;
 var overviewSamplesById = {};
 var overviewLastDataById = {};
 var overviewAnimated = false;
 var OVERVIEW_MAX_SAMPLES = 60;
 var overviewRefreshMs = 2000;
+var overviewCharts = {};
+var overviewChartsReady = false;
 
 function startOverview() {
     if (overviewTimer) clearInterval(overviewTimer);
@@ -53,7 +53,7 @@ function pushSample(id, d) {
         mem: d.process ? d.process.memory_rss_mb : 0,
         cpu: d.process ? d.process.cpu_percent : 0,
         players: d.players ? d.players.online : 0,
-        playersMax: d.players ? d.players.max : null,
+        playersMax: d.players ? d.players.max : null
     });
     if (arr.length > OVERVIEW_MAX_SAMPLES) {
         overviewSamplesById[id] = arr.slice(-OVERVIEW_MAX_SAMPLES);
@@ -190,69 +190,76 @@ function detailCard(title, rows) {
     return html;
 }
 
-function cssVar(name) {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '';
-}
-
 function renderCharts() {
     var id = currentServerId;
     var samples = overviewSamplesById[id] || [];
     var last = overviewLastDataById[id] || null;
-    var memData = samples.map(function (s) { return s.mem; });
-    var cpuData = samples.map(function (s) { return s.cpu; });
-    var plData = samples.map(function (s) { return s.players; });
-    drawSvgChart(document.getElementById('ovMemChart'), memData, {
-        height: 170, color: cssVar('--primary'), label: 'MB',
-        fixedMax: last && last.process ? Math.max(last.process.memory_rss_mb * 1.2, last.config.max_memory) : null,
-    });
-    drawSvgChart(document.getElementById('ovCpuChart'), cpuData, {
-        height: 170, color: cssVar('--secondary'), label: '%', fixedMax: 100,
-    });
-    var plMax = last && last.players ? last.players.max : null;
-    drawSvgChart(document.getElementById('ovPlayersChart'), plData, {
-        height: 120, color: cssVar('--success'), label: 'players',
-        fixedMax: plMax && plMax > 0 ? Math.max(plMax, 5) : null,
-    });
+    var mem = overviewCharts.mem, cpu = overviewCharts.cpu, pl = overviewCharts.pl;
+    if (!mem || !cpu || !pl) return;
+    var memMax = 128;
+    if (last && last.process) {
+        memMax = Math.max(last.process.memory_rss_mb * 1.15, last.config.max_memory, 128);
+    } else if (last && last.config && last.config.max_memory) {
+        memMax = last.config.max_memory;
+    }
+    var mp = [], cp = [], pp = [];
+    for (var i = 0; i < samples.length; i++) {
+        var s = samples[i];
+        mp.push({ t: s.t, v: s.mem });
+        cp.push({ t: s.t, v: s.cpu });
+        pp.push({ t: s.t, v: s.players });
+    }
+    mem.setData(mp, memMax);
+    cpu.setData(cp, 100);
+    var plMax = 5;
+    if (last && last.players && last.players.max > 0) plMax = last.players.max;
+    pl.setData(pp, Math.max(plMax, 5));
 }
 
-function drawSvgChart(svgEl, values, opts) {
-    if (!svgEl) return;
-    var W = 600;
-    var H = opts.height || 170;
-    var pad = 8;
-    var axisColor = cssVar('--text-hint');
-    var gridColor = cssVar('--divider') || 'rgba(0,0,0,.12)';
-    if (!values || values.length < 2) {
-        svgEl.innerHTML = '<text x="' + (W / 2) + '" y="' + (H / 2) + '" text-anchor="middle" fill="' + axisColor + '" font-size="13" font-family="Roboto">Collecting data...</text>';
-        return;
+function initOverviewCharts() {
+    if (overviewChartsReady) return;
+    overviewChartsReady = true;
+    var ids = { mem: 'ovMemChart', cpu: 'ovCpuChart', pl: 'ovPlayersChart' };
+    var defs = {
+        mem: {
+            colorVar: '--primary',
+            gridFormat: function (v) {
+                if (v === 0) return '0';
+                return v >= 1024 ? (v / 1024).toFixed(1) + 'G' : Math.round(v) + 'M';
+            },
+            chipFormat: function (v) {
+                return v >= 1024 ? (v / 1024).toFixed(1) + ' GB' : Math.round(v) + ' MB';
+            },
+            tipFormat: function (v) {
+                return v >= 1024 ? (v / 1024).toFixed(2) + ' GB' : Math.round(v) + ' MB';
+            }
+        },
+        cpu: {
+            colorVar: '--secondary',
+            gridFormat: function (v) { return Math.round(v) + '%'; },
+            chipFormat: function (v) { return Math.round(v) + '%'; },
+            tipFormat: function (v) { return v.toFixed(1) + '%'; }
+        },
+        pl: {
+            colorVar: '--success',
+            stepped: true,
+            gridFormat: function (v) { return String(Math.round(v)); },
+            chipFormat: function (v) { return String(Math.round(v)); },
+            tipFormat: function (v) { return Math.round(v) + ' players'; }
+        }
+    };
+    for (var key in defs) {
+        var canvas = document.getElementById(ids[key]);
+        if (canvas) overviewCharts[key] = new Charts.Chart(canvas, defs[key]);
     }
-    var minV = 0;
-    var maxV = opts.fixedMax || (Math.max.apply(null, values) * 1.15);
-    if (!(maxV > minV)) maxV = minV + 1;
-    var n = values.length;
-    var x0 = pad, x1 = W - pad, y0 = pad, y1 = H - pad;
-    var step = (x1 - x0) / (n - 1);
-    function px(i) { return x0 + i * step; }
-    function py(v) { return y1 - ((v - minV) / (maxV - minV)) * (y1 - y0); }
-    var poly = [];
-    for (var i = 0; i < n; i++) {
-        poly.push(px(i).toFixed(1) + ',' + py(values[i]).toFixed(1));
-    }
-    var area = x0 + ',' + y1 + ' ' + poly.join(' ') + ' ' + px(n - 1).toFixed(1) + ',' + y1;
-    var grid = '';
-    for (var g = 1; g <= 4; g++) {
-        var gy = y0 + (y1 - y0) * (g / 4);
-        grid += '<line x1="' + x0 + '" y1="' + gy.toFixed(1) + '" x2="' + x1 + '" y2="' + gy.toFixed(1) + '" stroke="' + gridColor + '" stroke-width="1"/>';
-    }
-    svgEl.innerHTML =
-        grid +
-        '<polygon points="' + area + '" fill="' + opts.color + '" opacity="0.12"/>' +
-        '<polyline points="' + poly.join(' ') + '" fill="none" stroke="' + opts.color + '" stroke-width="2" stroke-linejoin="round"/>' +
-        '<text x="' + x0 + '" y="' + (y0 + 12) + '" fill="' + axisColor + '" font-size="10" font-family="Roboto">' + opts.label + '</text>';
 }
+
+initOverviewCharts();
 
 if (window.__themeListeners) {
     window.__themeListeners.push(function () {
-        if (currentServerId && overviewLastDataById[currentServerId]) renderCharts();
+        for (var key in overviewCharts) {
+            if (overviewCharts[key]) overviewCharts[key].redraw();
+        }
     });
 }
