@@ -204,7 +204,7 @@ def _instance_to_api(inst: InstanceModel) -> dict:
     return result
 
 
-def _get_overview(inst: InstanceModel) -> dict:
+def _get_overview(inst: InstanceModel, players: Optional[dict] = None) -> dict:
     import psutil
     import platform
 
@@ -226,7 +226,7 @@ def _get_overview(inst: InstanceModel) -> dict:
         "stopping": bool(mgr and mgr.is_stopping()),
         "starting": bool(mgr and mgr.is_starting()),
         "last_error": mgr.last_error if mgr else None,
-        "players": _parse_players_from_output(mgr),
+        "players": players if players is not None else _parse_players_from_output(mgr),
         "log_lines": len(mgr.get_output(0)) if mgr else 0,
         "last_output": (mgr.get_output(1)[-1] if mgr and mgr.get_output(1) else None),
         "config": cfg,
@@ -453,7 +453,19 @@ async def instance_overview(instance_id: str):
     inst = await get_instance(instance_id)
     if inst is None:
         return JSONResponse(content={"error": "Instance not found"}, status_code=404)
-    return _get_overview(inst)
+    players = None
+    mgr = get_manager_sync(inst)
+    if mgr is not None and mgr.is_running():
+        from server.web import _server_address
+        from server.mc.status import probe
+        host, port = _server_address(inst)
+        info = await asyncio.to_thread(probe, host, port, 2.0)
+        if info.get("online"):
+            players = {
+                "online": int(info.get("players_online", 0) or 0),
+                "max": int(info.get("players_max", 0) or 0),
+            }
+    return _get_overview(inst, players=players)
 
 
 @router.post("/instances/{instance_id}/start")
