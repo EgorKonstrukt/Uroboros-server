@@ -7,7 +7,12 @@ from typing import Optional, Callable, List
 
 from server.mc.auth_plugin import create_server_auth_plugin, ServerAuthPlugin
 from server.mc.config import default_server_dir
-from server.mc.pidfile import write_pid_for, clear_pid_for
+from server.mc.pidfile import (
+    write_pid_for,
+    clear_pid_for,
+    is_running as pidfile_is_running,
+    stop_process as pidfile_stop_process,
+)
 
 
 class ServerManager:
@@ -23,7 +28,6 @@ class ServerManager:
         self.process: Optional[subprocess.Popen] = None
         self.last_error: Optional[str] = None
         self._lock = threading.RLock()
-        self._auto_restart = config.auto_restart
         self._stop_requested = False
         self._stopping = False
         self._starting = False
@@ -158,6 +162,7 @@ class ServerManager:
     def start(self, output_callback: Optional[Callable[[str], None]] = None) -> bool:
         with self._lock:
             if self.is_running():
+                self.last_error = "Server is already running (active process detected via PID file)"
                 return False
 
             self.last_error = None
@@ -215,8 +220,7 @@ class ServerManager:
                                 self._starting = False
                 except ValueError:
                     pass
-                if self._auto_restart:
-                    self._handle_crash()
+                self._handle_crash()
 
             threading.Thread(target=read_output, daemon=True).start()
             return True
@@ -229,7 +233,7 @@ class ServerManager:
                 clear_pid_for(self.config.id)
                 self.process = None
                 self._starting = False
-        if self._auto_restart and not self._stop_requested and not self._stopping and exit_code is not None and exit_code != 0:
+        if self.config.auto_restart and not self._stop_requested and not self._stopping and exit_code is not None and exit_code != 0:
             import time
             time.sleep(2)
             self.start()
@@ -269,11 +273,18 @@ class ServerManager:
         with self._lock:
             self._stopping = True
             proc = self.process
-            if not proc or proc.poll() is not None:
-                clear_pid_for(self.config.id)
+
+        if not proc or proc.poll() is not None:
+            with self._lock:
                 self.process = None
+                self._starting = False
+            if pidfile_is_running(self.config.id):
+                pidfile_stop_process(self.config.id, timeout=timeout)
+            with self._lock:
                 self._stopping = False
-                return True
+            clear_pid_for(self.config.id)
+            return True
+
         try:
             self._send_stdin("stop")
             proc.wait(timeout=timeout)
@@ -339,7 +350,7 @@ class ServerManager:
         if self.process and self.process.poll() is not None:
             clear_pid_for(self.config.id)
             self.process = None
-        return False
+        return pidfile_is_running(self.config.id)
 
     def send_command(self, command: str):
         self._send_stdin(command)

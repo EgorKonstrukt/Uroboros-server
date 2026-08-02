@@ -5,8 +5,10 @@ from sqlalchemy import select
 
 from server.database import get_session
 from server.models import InstanceModel
+from server.mc.auth_plugin import create_server_auth_plugin
 from server.mc.config import instance_model_to_dict, dict_to_instance_model, default_server_dir
 from server.mc.manager import ServerManager
+from server.mc.pidfile import is_running as pidfile_is_running, stop_process as pidfile_stop_process
 
 
 _manager_cache: dict[str, ServerManager] = {}
@@ -14,7 +16,6 @@ _lock = threading.Lock()
 
 
 def _create_manager(inst: InstanceModel) -> ServerManager:
-    from server.mc.auth_plugin import create_server_auth_plugin
     auth_plugin = create_server_auth_plugin(
         inst.auth_plugin,
         injector_filename=inst.injector_filename,
@@ -70,8 +71,10 @@ async def add_instance(config: InstanceModel) -> bool:
 
 async def remove_instance(instance_id: str) -> bool:
     mgr = _manager_cache.get(instance_id)
-    if mgr and mgr.is_running():
+    if mgr is not None and mgr.is_running():
         mgr.stop()
+    elif pidfile_is_running(instance_id):
+        pidfile_stop_process(instance_id)
     async with get_session() as session:
         inst = await session.get(InstanceModel, instance_id)
         if inst is None:
@@ -83,6 +86,17 @@ async def remove_instance(instance_id: str) -> bool:
 
 
 async def update_instance(config: InstanceModel) -> bool:
+    with _lock:
+        old = _manager_cache.get(config.id)
+        was_running = old is not None and old.is_running()
+        if was_running:
+            old.config = config
+            old.auth_plugin = create_server_auth_plugin(
+                config.auth_plugin,
+                injector_filename=config.injector_filename,
+            )
+        else:
+            _manager_cache.pop(config.id, None)
     async with get_session() as session:
         existing = await session.get(InstanceModel, config.id)
         if existing is None:
@@ -96,7 +110,6 @@ async def update_instance(config: InstanceModel) -> bool:
                      "modpack_id"):
             setattr(existing, key, getattr(config, key))
         await session.commit()
-    _manager_cache.pop(config.id, None)
     return True
 
 
@@ -109,6 +122,9 @@ async def reload_manager(instance_id: str) -> bool:
         old = _manager_cache.get(instance_id)
         was_running = old is not None and old.is_running()
         _manager_cache.pop(instance_id, None)
+
+    if old is not None and was_running:
+        old.stop()
 
     inst = await get_instance(instance_id)
     if inst is None:
