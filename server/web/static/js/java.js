@@ -17,7 +17,11 @@ async function loadJavaRuntimes() {
             tr.innerHTML = row;
             if (j.source === 'installed') {
                 var action = document.createElement('td');
-                action.innerHTML = '<button class="btn btn-stop btn-sm" onclick="uninstallJava(' + "'" + escAttr(j.path) + "'" + ')">Remove</button>';
+                var btn = document.createElement('button');
+                btn.className = 'btn btn-stop btn-sm';
+                btn.textContent = 'Remove';
+                btn.addEventListener('click', uninstallJava.bind(null, j.path));
+                action.appendChild(btn);
                 tr.appendChild(action);
                 installedBody.appendChild(tr);
                 installedCount++;
