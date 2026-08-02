@@ -6,7 +6,7 @@
 <title>Uroboros Admin</title>
 <script>(function(){var t='light';try{t=localStorage.getItem('uroboros_theme')||'light';}catch(e){}document.documentElement.classList.toggle('theme-dark',t==='dark');})();</script>
 <link rel="stylesheet" href="/admin/static/css/base.css?v=6">
-<link rel="stylesheet" href="/admin/static/css/layout.css?v=6">
+<link rel="stylesheet" href="/admin/static/css/layout.css?v=7">
 <link rel="stylesheet" href="/admin/static/css/components.css?v=10">
 <link rel="stylesheet" href="/admin/static/css/tables.css?v=6">
 <link rel="stylesheet" href="/admin/static/css/modals.css?v=6">
@@ -41,6 +41,7 @@
       <button class="nav-item nav-add-srv" onclick="showAddServer()">+ Add Server</button>
     </nav>
     <div class="sidebar-footer">
+      <div class="sidebar-version" id="sidebarVersion">Uroboros v__UROBOROS_VERSION__</div>
       <button id="logoutBtn" onclick="logout()">Logout</button>
     </div>
   </aside>

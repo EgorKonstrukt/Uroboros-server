@@ -209,6 +209,11 @@ def cmd_update(args):
     sys.exit(updater_main(argv))
 
 
+def cmd_version(args):
+    from server.version import APP_VERSION
+    print(APP_VERSION)
+
+
 def cmd_set_admin_password(args):
     from server.config import ServerConfig
     from server.auth.crypto import hash_password
@@ -260,6 +265,9 @@ def main():
     p_status = sub.add_parser("status", help="Show Minecraft server status")
     p_status.add_argument("instance_id", nargs="?", default=None)
     p_status.set_defaults(func=cmd_status)
+
+    p_version = sub.add_parser("version", help="Show Uroboros Server version")
+    p_version.set_defaults(func=cmd_version)
 
     p_pass = sub.add_parser("set-admin-password", help="Set the admin panel password (interactive if no password given)")
     p_pass.add_argument("password", nargs="?")

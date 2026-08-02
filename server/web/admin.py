@@ -1214,13 +1214,13 @@ async def core_versions(core_id: str):
 
 
 @router.get("/cores/{core_id}/versions/{version}/builds")
-async def core_builds(core_id: str, version: str):
+async def core_builds(core_id: str, version: str, loader: str = ""):
     from server.mc.core import get_core_builds
     try:
-        builds = await get_core_builds(core_id, version)
+        builds = await get_core_builds(core_id, version, loader)
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=400)
-    return {"core": core_id, "version": version, "builds": builds}
+    return {"core": core_id, "version": version, "loader": loader, "builds": builds}
 
 
 _core_tasks: dict[str, DownloadHandle] = {}
@@ -2254,11 +2254,12 @@ _ADMIN_FRAGMENTS = (
 
 
 def _render_admin_page() -> str:
+    from server.version import APP_VERSION
     parts = []
     for name in _ADMIN_FRAGMENTS:
         path = _template_dir / "admin" / f"{name}.html"
         with open(path, "r", encoding="utf-8") as f:
-            parts.append(f.read())
+            parts.append(f.read().replace("__UROBOROS_VERSION__", APP_VERSION))
     return "\n".join(parts)
 
 

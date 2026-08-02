@@ -81,9 +81,11 @@ if [ -n "$AUTOSTART" ]; then
     exit 0
 fi
 
+VERSION="$("$EXE" version 2>/dev/null)"
+
 while true; do
     clear
-    echo ">> Uroboros Server (compiled) <<"
+    echo ">> Uroboros Server (compiled) - v$VERSION <<"
     echo
     echo "[1] Run full server (auth + admin dashboard)"
     echo "[2] Start Minecraft server only"

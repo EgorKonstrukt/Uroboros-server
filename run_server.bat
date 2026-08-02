@@ -24,10 +24,13 @@ if defined SET_PASSWORD (
     exit /b 0
 )
 
+call :get_version
+
 :menu
 cls
 echo ================================================
 echo              UROBOROS SERVER
+echo            Version: %UROBOROS_VERSION%
 echo ================================================
 echo.
 echo  [1] Run admin web panel
@@ -261,6 +264,11 @@ exit /b 0
 
 :hold
 if not defined AUTOSTART pause
+exit /b 0
+
+:get_version
+set "UROBOROS_VERSION="
+for /f "delims=" %%i in ('"%RUNNER%" -m server version 2^>nul') do set "UROBOROS_VERSION=%%i"
 exit /b 0
 
 :done

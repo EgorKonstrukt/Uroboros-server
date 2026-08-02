@@ -23,9 +23,11 @@ if defined AUTOSTART (
     exit /b 0
 )
 
+call :get_version
+
 :menu
 cls
-echo ^>^> Uroboros Server ^(compiled^) ^<^<
+echo ^>^> Uroboros Server ^(compiled^) - v%UROBOROS_VERSION% ^<^<
 echo.
 echo [1] Run full server (auth + admin dashboard)
 echo [2] Start Minecraft server only
@@ -121,6 +123,11 @@ exit /b 0
 
 :hold
 if not defined AUTOSTART pause
+exit /b 0
+
+:get_version
+set "UROBOROS_VERSION="
+for /f "delims=" %%i in ('"%EXE%" version 2^>nul') do set "UROBOROS_VERSION=%%i"
 exit /b 0
 
 :done

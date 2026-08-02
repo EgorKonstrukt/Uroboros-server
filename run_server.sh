@@ -276,10 +276,13 @@ if [ -n "$SET_PASSWORD" ]; then
     exit $?
 fi
 
+VERSION="$("$RUNNER" -m server version 2>/dev/null)"
+
 while true; do
     clear
     echo "================================================"
     echo "              UROBOROS SERVER"
+    echo "            Version: $VERSION"
     echo "================================================"
     echo
     echo " [1] Run admin web panel"

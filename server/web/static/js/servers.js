@@ -750,7 +750,7 @@ function onCoreVersionChange() {
             if (rec) sel.value = rec;
             sel.style.display = '';
         }).catch(function () { document.getElementById('coreBuildSelect').style.display = 'none'; });
-    } else if (core === 'fabric' || core === 'quilt' || core === 'forge' || core === 'neoforge') {
+    } else if (core === 'fabric' || core === 'quilt' || core === 'forge' || core === 'neoforge' || core === 'arclight') {
         apiFetch('/admin/cores/' + encodeURIComponent(core) + '/versions/' + encodeURIComponent(version) + '/builds').then(function (r) {
             if (!r) return;
             return r.json();
@@ -768,8 +768,41 @@ function onCoreVersionChange() {
             }
             if (rec) sel.value = rec;
             sel.style.display = '';
+            if (core === 'arclight') {
+                if (!sel.value && d.builds.length > 0) sel.value = d.builds[0].id;
+                onCoreLoaderChange();
+            }
         }).catch(function () { document.getElementById('coreLoaderSelect').style.display = 'none'; });
     }
+}
+
+function onCoreLoaderChange() {
+    var core = currentCoreType;
+    var version = document.getElementById('coreVersionSelect').value;
+    var loader = document.getElementById('coreLoaderSelect').value;
+    var sel = document.getElementById('coreBuildSelect');
+    sel.style.display = 'none';
+    sel.innerHTML = '<option value="">Latest</option>';
+    var btn = document.getElementById('coreInstallBtn');
+    btn.disabled = !core || !version || !loader;
+    if (core !== 'arclight' || !version || !loader) return;
+    apiFetch('/admin/cores/' + encodeURIComponent(core) + '/versions/' + encodeURIComponent(version) + '/builds?loader=' + encodeURIComponent(loader)).then(function (r) {
+        if (!r) return;
+        return r.json();
+    }).then(function (d) {
+        if (!d || d.error) { sel.style.display = 'none'; return; }
+        sel.innerHTML = '<option value="">Latest</option>';
+        var rec = null;
+        for (var i = 0; i < d.builds.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = d.builds[i].id;
+            opt.textContent = d.builds[i].label;
+            sel.appendChild(opt);
+            if (d.builds[i].recommended && !rec) rec = d.builds[i].id;
+        }
+        if (rec) sel.value = rec;
+        sel.style.display = '';
+    }).catch(function () { sel.style.display = 'none'; });
 }
 
 async function startCoreInstall() {
@@ -777,8 +810,8 @@ async function startCoreInstall() {
     var version = document.getElementById('coreVersionSelect').value;
     if (!version) { toast('Select a Minecraft version', 'error'); return; }
     var core = currentCoreType;
-    var isBuildCore = core === 'paper' || core === 'purpur';
-    var isLoaderCore = core === 'fabric' || core === 'quilt' || core === 'forge' || core === 'neoforge';
+    var isBuildCore = core === 'paper' || core === 'purpur' || core === 'arclight';
+    var isLoaderCore = core === 'fabric' || core === 'quilt' || core === 'forge' || core === 'neoforge' || core === 'arclight';
     var build = isBuildCore ? document.getElementById('coreBuildSelect').value : '';
     var loader = isLoaderCore ? document.getElementById('coreLoaderSelect').value : '';
     var filename = document.getElementById('coreFilenameInput').value.trim();

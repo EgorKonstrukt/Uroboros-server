@@ -103,15 +103,15 @@
           <div id="serverCoreView" class="server-sub-panel">
             <div class="panel-header">
               <h3>Server Core</h3>
-              <span class="panel-sub">Install a server core (Vanilla, Paper, Purpur, Spigot, Bukkit, Fabric, Quilt, Forge, NeoForge)</span>
+              <span class="panel-sub">Install a server core (Vanilla, Paper, Purpur, Spigot, Bukkit, Fabric, Quilt, Forge, NeoForge, Arclight)</span>
             </div>
             <div class="md-card">
               <div class="core-status" id="coreCurrentInfo"></div>
               <div class="row">
                 <select id="coreTypeSelect" class="config-input" style="width:auto;min-width:220px" onchange="onCoreTypeChange()"><option value="">(select core type)</option></select>
                 <select id="coreVersionSelect" class="config-input" style="width:auto;min-width:160px" onchange="onCoreVersionChange()" disabled><option value="">Loading...</option></select>
-                <select id="coreBuildSelect" class="config-input" style="width:auto;min-width:140px;display:none"><option value="">Latest</option></select>
-                <select id="coreLoaderSelect" class="config-input" style="width:auto;min-width:180px;display:none"><option value="">Latest recommended</option></select>
+                <select id="coreLoaderSelect" class="config-input" style="width:auto;min-width:180px;display:none" onchange="onCoreLoaderChange()"><option value="">Latest recommended</option></select>
+                <select id="coreBuildSelect" class="config-input" style="width:auto;min-width:180px;display:none"><option value="">Latest</option></select>
               </div>
               <div class="row">
                 <input type="text" id="coreFilenameInput" class="config-input" style="width:auto;min-width:240px" placeholder="Server JAR filename (optional)" autocomplete="off">

@@ -27,6 +27,7 @@
 .tree-group-children{display:flex;flex-direction:column;gap:2px;padding-left:8px;overflow:hidden;height:auto;transition:height .28s cubic-bezier(.4,0,.2,1)}
 .tree-group-children.collapsed{height:0}
 .sidebar-footer{padding:8px;border-top:1px solid var(--divider)}
+.sidebar-version{font-size:11px;color:var(--text-hint);padding:4px 16px 8px;letter-spacing:.3px;text-align:left}
 #logoutBtn{display:flex;align-items:center;gap:12px;padding:0 16px;height:44px;border:none;border-radius:var(--radius);background:transparent;color:var(--text-secondary);font-size:14px;font-weight:500;cursor:pointer;transition:background .15s,color .15s;width:100%;font-family:var(--font);position:relative;overflow:hidden}
 #logoutBtn:hover{background:var(--error-tint);color:var(--error)}
 #logoutBtn.hidden{display:none}

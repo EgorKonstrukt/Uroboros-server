@@ -27,6 +27,7 @@ FORGE_MAVEN = "https://maven.minecraftforge.net/net/minecraftforge/forge"
 FORGE_PROMOTIONS = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
 NEOFORGE_MAVEN = "https://maven.neoforged.net/releases/net/neoforged/neoforge"
 SPIGOT_BUILDTOOLS_URL = "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar"
+ARCLIGHT_API = "https://files.hypoglycemia.icu/v1/files/arclight/minecraft"
 
 CORE_TYPES = [
     {
@@ -100,6 +101,14 @@ CORE_TYPES = [
         "has_builds": False,
         "loader_versions": True,
         "installer": True,
+    },
+    {
+        "id": "arclight",
+        "label": "Arclight",
+        "description": "A Bukkit server implementation on common mod loaders (Forge/NeoForge/Fabric)",
+        "has_builds": False,
+        "loader_versions": True,
+        "installer": False,
     },
 ]
 
@@ -437,6 +446,41 @@ async def _neoforge_loaders(version):
     return out
 
 
+async def _arclight_versions():
+    data = await _http_get_json(ARCLIGHT_API)
+    out = []
+    for f in data.get("files", []):
+        name = f.get("name", "")
+        if not name:
+            continue
+        out.append({"version": name, "label": name, "type": "release", "release": True})
+    out.sort(key=lambda x: _version_key(x["version"]), reverse=True)
+    return out
+
+
+async def _arclight_loaders(version):
+    data = await _http_get_json(f"{ARCLIGHT_API}/{version}/loaders")
+    out = []
+    for f in data.get("files", []):
+        name = f.get("name", "")
+        if not name:
+            continue
+        out.append({"id": name, "label": name, "recommended": False})
+    return out
+
+
+async def _arclight_versions_for_loader(version, loader):
+    data = await _http_get_json(f"{ARCLIGHT_API}/{version}/loaders/{loader}/versions-snapshot")
+    out = []
+    for f in data.get("files", []):
+        name = f.get("name", "")
+        if not name:
+            continue
+        stable = "-SNAPSHOT" not in name
+        out.append({"id": name, "label": name if stable else f"{name} (snapshot)", "recommended": stable})
+    return out
+
+
 async def get_core_versions(core_id: str) -> list:
     _get_core_type(core_id)
     if core_id == "vanilla":
@@ -455,10 +499,12 @@ async def get_core_versions(core_id: str) -> list:
         return await _forge_versions()
     if core_id == "neoforge":
         return await _neoforge_versions()
+    if core_id == "arclight":
+        return await _arclight_versions()
     raise CoreError(f"Unknown core type: {core_id}")
 
 
-async def get_core_builds(core_id: str, version: str) -> list:
+async def get_core_builds(core_id: str, version: str, loader: str = "") -> list:
     _get_core_type(core_id)
     if core_id == "paper":
         return await _paper_builds(version)
@@ -472,6 +518,10 @@ async def get_core_builds(core_id: str, version: str) -> list:
         return await _forge_loaders(version)
     if core_id == "neoforge":
         return await _neoforge_loaders(version)
+    if core_id == "arclight":
+        if loader:
+            return await _arclight_versions_for_loader(version, loader)
+        return await _arclight_loaders(version)
     return []
 
 
@@ -647,6 +697,32 @@ async def _install_neoforge(instance, version, loader_version, filename, handle)
     return _make_result("neoforge", version, loader_version, jar) | {"server_filename": rel}
 
 
+async def _install_arclight(instance, version, loader, arclight_version, filename, handle):
+    if not loader:
+        raise CoreError("No loader selected (fabric, forge or neoforge)")
+    if not arclight_version:
+        builds = await _arclight_versions_for_loader(version, loader)
+        if not builds:
+            raise CoreError("No Arclight builds available for this version/loader")
+        stable = [b for b in builds if b["recommended"]]
+        arclight_version = (stable or builds)[0]["id"]
+    data = await _http_get_json(f"{ARCLIGHT_API}/{version}/loaders/{loader}/versions-snapshot")
+    target = None
+    for f in data.get("files", []):
+        if f.get("name") == arclight_version:
+            target = f
+            break
+    if target is None:
+        raise CoreError(f"Arclight build {arclight_version} not found for MC {version} ({loader})")
+    url = target.get("permlink") or target.get("link") or ""
+    if not url:
+        raise CoreError("No download link available for this Arclight build")
+    fname = filename or f"arclight-{loader}-{version}-{arclight_version}.jar"
+    dest = _server_dir(instance) / fname
+    await _http_download(url, dest, handle)
+    return _make_result("arclight", version, f"{loader} {arclight_version}", dest)
+
+
 def _build_buildtools(server_dir, java, version, target, tmp, filename):
     bt = tmp / "BuildTools.jar"
     cmd = [java, "-jar", str(bt), "--rev", version]
@@ -713,4 +789,6 @@ async def install_server_core(instance, core_id, version, build=None, loader_ver
         return await _install_forge(instance, version, loader_version or build, filename, handle)
     if core_id == "neoforge":
         return await _install_neoforge(instance, version, loader_version or build, filename, handle)
+    if core_id == "arclight":
+        return await _install_arclight(instance, version, loader_version or build, build, filename, handle)
     raise CoreError(f"Unknown core type: {core_id}")
