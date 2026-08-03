@@ -149,31 +149,48 @@ _TPS_MS_RE = re.compile(r"Server tick time:\s*([\d.]+)ms average", re.IGNORECASE
 _TPS_LAG_RE = re.compile(r"Running\s+(\d+)ms\s+or\s+(\d+) ticks behind", re.IGNORECASE)
 
 
-def _parse_tps_from_output(mgr) -> Optional[float]:
-    if mgr is None:
-        return None
-    for line in reversed(mgr.get_output(500)):
+def _parse_tps_lines(lines: list[str]) -> Optional[float]:
+    for line in reversed(lines):
         m = _TPS_RE.search(line)
         if m:
-            return min(20.0, float(m.group(1)))
+            try:
+                return min(20.0, max(0.0, float(m.group(1))))
+            except ValueError:
+                return None
+    for line in reversed(lines):
         m = _TPS_MS_RE.search(line)
         if m:
-            return min(20.0, 1000.0 / max(float(m.group(1)), 1.0))
+            try:
+                ms = float(m.group(1))
+            except ValueError:
+                continue
+            if ms > 0:
+                return min(20.0, 1000.0 / ms)
+    for line in reversed(lines):
         m = _TPS_LAG_RE.search(line)
         if m:
-            ms = float(m.group(1))
-            ticks = float(m.group(2))
+            try:
+                ms = float(m.group(1))
+                ticks = float(m.group(2))
+            except ValueError:
+                continue
             if ms > 0 and ticks > 0:
                 return min(20.0, ticks * 1000.0 / ms)
     return None
 
 
+def _parse_tps_from_output(mgr) -> Optional[float]:
+    if mgr is None:
+        return None
+    return _parse_tps_lines(mgr.get_output(500))
+
+
 def _tps_probe_command(inst: InstanceModel) -> Optional[str]:
     fname = (inst.server_filename or "").lower()
+    if "neoforge" in fname:
+        return "/forge tps"
     if "arclight" in fname or "forge" in fname:
         return "/forge tps"
-    if "neoforge" in fname:
-        return "/tps"
     if any(k in fname for k in ("paper", "purpur", "spigot", "craftbukkit", "bukkit")):
         return "/tps"
     return None
@@ -240,9 +257,31 @@ def _instance_to_api(inst: InstanceModel) -> dict:
     return result
 
 
-_tps_last_probe: dict[str, float] = {}
+_tps_state: dict[str, dict] = {}
 _tps_probe_lock = threading.Lock()
 _TPS_PROBE_INTERVAL = 20.0
+
+
+def _tps_reading(inst: InstanceModel, mgr) -> Optional[float]:
+    cmd = _tps_probe_command(inst)
+    if cmd is None:
+        return None
+    with _tps_probe_lock:
+        state = _tps_state.get(inst.id)
+        run_id = id(mgr.process)
+        now = time.monotonic()
+        if state is None or state.get("run") != run_id:
+            state = {"run": run_id, "probe_at": 0.0, "cursor": mgr.get_output_cursor(), "value": None}
+            _tps_state[inst.id] = state
+        if now - state["probe_at"] >= _TPS_PROBE_INTERVAL:
+            state["probe_at"] = now
+            state["cursor"] = mgr.get_output_cursor()
+            mgr.send_command(cmd)
+        value = _parse_tps_lines(mgr.get_output_from(state["cursor"]))
+        if value is not None:
+            state["value"] = value
+            state["cursor"] = mgr.get_output_cursor()
+        return state["value"]
 
 
 def _get_overview(inst: InstanceModel, players: Optional[dict] = None) -> dict:
@@ -251,14 +290,7 @@ def _get_overview(inst: InstanceModel, players: Optional[dict] = None) -> dict:
 
     mgr = get_manager_sync(inst)
     running = mgr is not None and mgr.is_running()
-    if running:
-        cmd = _tps_probe_command(inst)
-        if cmd:
-            with _tps_probe_lock:
-                now = time.monotonic()
-                if now - _tps_last_probe.get(inst.id, 0.0) >= _TPS_PROBE_INTERVAL:
-                    _tps_last_probe[inst.id] = now
-                    mgr.send_command(cmd)
+    tps = _tps_reading(inst, mgr) if running else None
 
     cfg = instance_model_to_dict(inst)
     for key in ("created_at", "last_error"):
@@ -276,7 +308,7 @@ def _get_overview(inst: InstanceModel, players: Optional[dict] = None) -> dict:
         "starting": bool(mgr and mgr.is_starting()),
         "last_error": mgr.last_error if mgr else None,
         "players": players if players is not None else _parse_players_from_output(mgr),
-        "tps": _parse_tps_from_output(mgr) if running else None,
+        "tps": tps,
         "log_lines": len(mgr.get_output(0)) if mgr else 0,
         "last_output": (mgr.get_output(1)[-1] if mgr and mgr.get_output(1) else None),
         "config": cfg,

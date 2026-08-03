@@ -731,7 +731,7 @@ function onCoreVersionChange() {
         note.innerHTML = 'Spigot/Bukkit are built on this machine with BuildTools. This requires Java 8-21 and can take a very long time (10+ minutes).';
         note.style.display = 'block';
     }
-    if (core === 'paper' || core === 'purpur') {
+    if (core === 'paper' || core === 'folia' || core === 'purpur') {
         apiFetch('/admin/cores/' + encodeURIComponent(core) + '/versions/' + encodeURIComponent(version) + '/builds').then(function (r) {
             if (!r) return;
             return r.json();
@@ -810,7 +810,7 @@ async function startCoreInstall() {
     var version = document.getElementById('coreVersionSelect').value;
     if (!version) { toast('Select a Minecraft version', 'error'); return; }
     var core = currentCoreType;
-    var isBuildCore = core === 'paper' || core === 'purpur' || core === 'arclight';
+    var isBuildCore = core === 'paper' || core === 'folia' || core === 'purpur' || core === 'arclight';
     var isLoaderCore = core === 'fabric' || core === 'quilt' || core === 'forge' || core === 'neoforge' || core === 'arclight';
     var build = isBuildCore ? document.getElementById('coreBuildSelect').value : '';
     var loader = isLoaderCore ? document.getElementById('coreLoaderSelect').value : '';

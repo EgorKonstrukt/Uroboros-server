@@ -47,6 +47,14 @@ CORE_TYPES = [
         "installer": False,
     },
     {
+        "id": "folia",
+        "label": "Folia",
+        "description": "PaperMC fork adding regionised multithreading for high player counts",
+        "has_builds": True,
+        "loader_versions": False,
+        "installer": False,
+    },
+    {
         "id": "purpur",
         "label": "Purpur",
         "description": "Fork of Paper with extra configurability",
@@ -228,8 +236,8 @@ async def _vanilla_versions():
     return out
 
 
-async def _paper_versions():
-    data = await _http_get_json_first([u + "/projects/paper" for u in PAPER_API_URLS])
+async def _paper_versions(project="paper"):
+    data = await _http_get_json_first([u + f"/projects/{project}" for u in PAPER_API_URLS])
     raw = data.get("versions", [])
     flat = []
     if isinstance(raw, dict):
@@ -242,8 +250,8 @@ async def _paper_versions():
     return out
 
 
-async def _paper_builds(version):
-    data = await _http_get_json_first([u + f"/projects/paper/versions/{version}/builds" for u in PAPER_API_URLS])
+async def _paper_builds(version, project="paper"):
+    data = await _http_get_json_first([u + f"/projects/{project}/versions/{version}/builds" for u in PAPER_API_URLS])
     builds = data if isinstance(data, list) else data.get("builds", [])
     out = []
     for b in builds:
@@ -487,6 +495,8 @@ async def get_core_versions(core_id: str) -> list:
         return await _vanilla_versions()
     if core_id == "paper":
         return await _paper_versions()
+    if core_id == "folia":
+        return await _paper_versions("folia")
     if core_id == "purpur":
         return await _purpur_versions()
     if core_id in ("spigot", "bukkit"):
@@ -508,6 +518,8 @@ async def get_core_builds(core_id: str, version: str, loader: str = "") -> list:
     _get_core_type(core_id)
     if core_id == "paper":
         return await _paper_builds(version)
+    if core_id == "folia":
+        return await _paper_builds(version, "folia")
     if core_id == "purpur":
         return await _purpur_builds(version)
     if core_id == "fabric":
@@ -544,14 +556,14 @@ async def _install_vanilla(instance, version, filename, handle):
     return _make_result("vanilla", version, version, dest)
 
 
-async def _install_paper(instance, version, build, filename, handle):
+async def _install_paper(instance, version, build, filename, handle, project="paper"):
     if not build:
-        builds = await _paper_builds(version)
+        builds = await _paper_builds(version, project)
         if not builds:
             raise CoreError("No builds available for this version")
         stable = [b for b in builds if b["recommended"]]
         build = (stable or builds)[0]["id"]
-    data = await _http_get_json_first([u + f"/projects/paper/versions/{version}/builds" for u in PAPER_API_URLS])
+    data = await _http_get_json_first([u + f"/projects/{project}/versions/{version}/builds" for u in PAPER_API_URLS])
     builds = data if isinstance(data, list) else data.get("builds", [])
     bobj = None
     for b in builds:
@@ -561,14 +573,14 @@ async def _install_paper(instance, version, build, filename, handle):
     if bobj is None:
         raise CoreError(f"Build {build} not found for version {version}")
     downloads = bobj.get("downloads") or {}
-    dl = downloads.get("server:default") or downloads.get("server") or {}
+    dl = downloads.get("server:default") or downloads.get("server:mojang") or downloads.get("server") or {}
     if not dl or not dl.get("url"):
         raise CoreError("No server download available for this build")
     url = dl["url"]
-    fname = filename or dl.get("name") or f"paper-{version}-{build}.jar"
+    fname = filename or dl.get("name") or f"{project}-{version}-{build}.jar"
     dest = _server_dir(instance) / fname
     await _http_download(url, dest, handle)
-    return _make_result("paper", version, f"build {build}", dest)
+    return _make_result(project, version, f"build {build}", dest)
 
 
 async def _install_purpur(instance, version, build, filename, handle):
@@ -775,6 +787,8 @@ async def install_server_core(instance, core_id, version, build=None, loader_ver
         return await _install_vanilla(instance, version, filename, handle)
     if core_id == "paper":
         return await _install_paper(instance, version, build, filename, handle)
+    if core_id == "folia":
+        return await _install_paper(instance, version, build, filename, handle, "folia")
     if core_id == "purpur":
         return await _install_purpur(instance, version, build, filename, handle)
     if core_id == "spigot":
