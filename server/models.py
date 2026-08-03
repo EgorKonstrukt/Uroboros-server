@@ -19,6 +19,7 @@ _INSTANCE_DEFAULTS = {
     "additional_flags": "",
     "arguments": "",
     "api_url": "http://127.0.0.1:25581",
+    "public_address": "",
     "auth_plugin": "injector",
     "injector_filename": "authlib-injector.jar",
     "auto_restart": False,
@@ -134,6 +135,7 @@ class InstanceModel(Base):
     arguments: Mapped[str] = mapped_column(Text, default="", nullable=False)
     modpack_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     api_url: Mapped[str] = mapped_column(String(512), default="http://127.0.0.1:25581", nullable=False)
+    public_address: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     auth_plugin: Mapped[str] = mapped_column(String(64), default="injector", nullable=False)
     injector_filename: Mapped[str] = mapped_column(String(255), default="authlib-injector.jar", nullable=False)
     auto_restart: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

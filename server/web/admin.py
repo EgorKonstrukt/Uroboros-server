@@ -53,6 +53,7 @@ _INSTANCE_FIELD_META = {
     "additional_flags": {"label": "JVM Flags", "description": "Extra JVM flags"},
     "arguments": {"label": "Server Arguments", "description": "Args passed to the JAR (e.g. --nogui)"},
     "api_url": {"label": "Auth API URL", "description": "Auth server URL for the injector"},
+    "public_address": {"label": "Server Address", "description": "Address shown to players (e.g. 82.162.59.243:25565). Leave empty to auto-derive from Auth API URL"},
     "auth_plugin": {"label": "Auth Plugin", "description": "Authentication plugin type"},
     "injector_filename": {"label": "Injector JAR", "description": "authlib-injector JAR filename"},
     "auto_restart": {"label": "Auto Restart", "description": "Automatically restart on crash"},

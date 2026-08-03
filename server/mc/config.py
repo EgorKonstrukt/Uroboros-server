@@ -23,6 +23,7 @@ def instance_model_to_dict(inst: InstanceModel) -> dict:
         "additional_flags": inst.additional_flags,
         "arguments": inst.arguments,
         "api_url": inst.api_url,
+        "public_address": inst.public_address,
         "auth_plugin": inst.auth_plugin,
         "injector_filename": inst.injector_filename,
         "auto_restart": inst.auto_restart,
@@ -40,7 +41,7 @@ def dict_to_instance_model(data: dict, instance: Optional[InstanceModel] = None)
     for key in ("id", "name", "project_id", "modpack_id", "enabled",
                 "server_dir", "server_filename", "java_executable_path",
                 "max_memory", "min_memory", "additional_flags", "arguments",
-                "api_url", "auth_plugin", "injector_filename",
+                "api_url", "public_address", "auth_plugin", "injector_filename",
                 "auto_restart", "auto_accept_eula", "whitelist_enabled",
                 "version", "jar_url"):
         if key in data:

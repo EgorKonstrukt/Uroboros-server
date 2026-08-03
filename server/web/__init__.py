@@ -231,9 +231,10 @@ async def delete_news(project_id: str, news_id: int):
 
 # ── Launcher Sync ──
 
-def _server_address(inst: InstanceModel) -> tuple:
-    host = "127.0.0.1"
-    port = 25565
+_PRIVATE_HOST_RE = re.compile(r"^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|localhost)", re.IGNORECASE)
+
+
+def _load_props(inst: InstanceModel) -> dict:
     props = {}
     props_path = Path(inst.server_dir) / "server.properties"
     if props_path.exists():
@@ -242,17 +243,49 @@ def _server_address(inst: InstanceModel) -> tuple:
             if line and not line.startswith("#") and "=" in line:
                 key, val = line.split("=", 1)
                 props[key.strip()] = val.strip()
+    return props
+
+
+def _server_address(inst: InstanceModel) -> tuple:
+    """Address used to probe server status (must be reachable from the Uroboros machine)."""
+    host = "127.0.0.1"
+    props = _load_props(inst)
     try:
         port = int(props.get("server-port", "25565"))
     except ValueError:
-        pass
+        port = 25565
     ip = props.get("server-ip", "").strip()
-    if ip:
+    if ip and ip not in ("0.0.0.0", "127.0.0.1"):
         host = ip
     else:
-        parsed = urlparse(inst.api_url)
-        if parsed.hostname:
-            host = parsed.hostname
+        parsed = urlparse(inst.api_url or "")
+        hn = (parsed.hostname or "").lower()
+        if hn and _PRIVATE_HOST_RE.match(hn) and hn not in ("127.0.0.1", "localhost"):
+            host = hn
+    return host, port
+
+
+def _advertised_address(inst: InstanceModel) -> tuple:
+    """Address returned to launcher clients (the one players connect to)."""
+    host, port = _server_address(inst)
+    raw = (inst.public_address or "").strip()
+    if raw:
+        if ":" in raw:
+            head, _, tail = raw.rpartition(":")
+            head = head.strip().strip("[]")
+            if head:
+                host = head
+            try:
+                port = int(tail)
+            except ValueError:
+                pass
+        else:
+            host = raw.strip()
+        return host, port
+    parsed = urlparse(inst.api_url or "")
+    hn = (parsed.hostname or "").lower()
+    if hn and hn not in ("127.0.0.1", "localhost") and not _PRIVATE_HOST_RE.match(hn):
+        host = hn
     return host, port
 
 
@@ -275,9 +308,10 @@ async def launcher_project_servers(project_id: str):
         if not inst.enabled:
             continue
         host, port = _server_address(inst)
+        adv_host, adv_port = _advertised_address(inst)
         mgr = get_manager_sync(inst)
         running = mgr.is_running() or pid_running(inst.id)
-        entries.append((inst, host, port, running))
+        entries.append((inst, host, port, adv_host, adv_port, running))
         if running:
             tasks.append(asyncio.to_thread(probe, host, port, 2.0))
         else:
@@ -285,7 +319,7 @@ async def launcher_project_servers(project_id: str):
 
     results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
     servers = []
-    for (inst, host, port, running), status in zip(entries, results):
+    for (inst, host, port, adv_host, adv_port, running), status in zip(entries, results):
         if isinstance(status, Exception):
             status = {"online": False}
         servers.append({
@@ -295,8 +329,8 @@ async def launcher_project_servers(project_id: str):
             "modpack_id": inst.modpack_id or "",
             "modpack_name": modpacks.get(inst.modpack_id, ""),
             "running": running,
-            "address": host,
-            "port": port,
+            "address": adv_host,
+            "port": adv_port,
             **status,
         })
     return {"items": servers}

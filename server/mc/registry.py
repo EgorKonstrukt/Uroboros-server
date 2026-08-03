@@ -104,7 +104,7 @@ async def update_instance(config: InstanceModel) -> bool:
         for key in ("name", "project_id", "enabled",
                      "server_dir", "server_filename", "java_executable_path",
                      "max_memory", "min_memory", "additional_flags", "arguments",
-                     "api_url", "auth_plugin", "injector_filename",
+                     "api_url", "public_address", "auth_plugin", "injector_filename",
                      "auto_restart", "auto_accept_eula", "whitelist_enabled",
                      "version", "jar_url",
                      "modpack_id"):

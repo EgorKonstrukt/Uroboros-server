@@ -38,6 +38,8 @@ def _migrate(conn):
     instances = _column_names(conn, "instances")
     if "whitelist_enabled" not in instances:
         conn.execute(text("ALTER TABLE instances ADD COLUMN whitelist_enabled BOOLEAN NOT NULL DEFAULT 0"))
+    if "public_address" not in instances:
+        conn.execute(text("ALTER TABLE instances ADD COLUMN public_address VARCHAR(255) NOT NULL DEFAULT ''"))
 
 
 class DatabaseManager:

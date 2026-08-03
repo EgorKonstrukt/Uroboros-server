@@ -3,7 +3,6 @@ import os
 import argparse
 import asyncio
 from pathlib import Path
-from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -107,28 +106,8 @@ async def _load_instances(instance_id):
 
 
 def _instance_address(inst):
-    host = "127.0.0.1"
-    port = 25565
-    props = {}
-    props_path = Path(inst.server_dir) / "server.properties"
-    if props_path.exists():
-        for line in props_path.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, val = line.split("=", 1)
-                props[key.strip()] = val.strip()
-    try:
-        port = int(props.get("server-port", "25565"))
-    except ValueError:
-        pass
-    ip = props.get("server-ip", "").strip()
-    if ip:
-        host = ip
-    else:
-        parsed = urlparse(inst.api_url or "")
-        if parsed.hostname:
-            host = parsed.hostname
-    return host, port
+    from server.web import _server_address
+    return _server_address(inst)
 
 
 async def _start_instances(instance_id):
