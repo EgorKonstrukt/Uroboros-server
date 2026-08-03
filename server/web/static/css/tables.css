@@ -14,14 +14,18 @@ tbody td code{font-family:var(--mono);font-size:12px;background:var(--code-bg);p
 .md-card-title{font-size:16px;font-weight:500;color:var(--on-surface);margin-bottom:12px}
 
 /* ===== Compact config forms (MD2 grid) ===== */
-#configForm,#serverSettingsForm{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:0 24px;align-items:start;background:var(--surface);border-radius:var(--radius);padding:8px 24px 16px;box-shadow:var(--md-elevation-1)}
+#configForm,#serverSettingsForm{display:block;background:var(--surface);border-radius:var(--radius);padding:4px 24px 16px;box-shadow:var(--md-elevation-1)}
+.config-section{padding:4px 0 2px;border-top:1px solid var(--divider)}
+.config-section:first-child{border-top:none}
+.config-section-title{margin:16px 0 4px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--primary)}
+.config-section-body{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:0 24px;align-items:start}
 .config-field{display:flex;flex-direction:column;justify-content:flex-start;padding:12px 0;border-bottom:1px solid var(--divider);min-width:0}
 .config-label{font-size:13px;font-weight:500;color:var(--text-secondary);margin-bottom:2px}
 .config-desc{font-size:12px;color:var(--text-hint);margin-bottom:8px;line-height:1.4;overflow:hidden;text-overflow:ellipsis}
 .config-input{width:100%;height:40px;padding:0 12px;border:1px solid var(--outline);border-radius:var(--radius);font:400 14px var(--font);outline:none;transition:border-color .15s,box-shadow .15s;background:var(--surface);color:var(--on-surface)}
 .config-input:focus{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-tint)}
 select.config-input{background:var(--surface);cursor:pointer}
-.config-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px;padding:16px 0 8px;border-top:1px solid var(--divider);margin-top:12px}
+.config-actions{display:flex;justify-content:flex-end;gap:8px;padding:16px 0 8px;border-top:1px solid var(--divider);margin-top:8px}
 
 /* MD2 switch for boolean fields */
 .config-field-switch{position:relative}

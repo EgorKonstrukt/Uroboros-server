@@ -15,6 +15,12 @@ from server.mc.pidfile import (
 )
 
 
+def _default_stop_timeout() -> float:
+    from server.config import ServerConfig
+
+    return float(getattr(ServerConfig.load(), "server_stop_timeout", 30.0))
+
+
 class ServerManager:
     def __init__(self, config, auth_plugin: Optional[ServerAuthPlugin] = None):
         self.config = config
@@ -267,7 +273,9 @@ class ServerManager:
         except (ProcessLookupError, OSError):
             pass
 
-    def stop(self, timeout: float = 30) -> bool:
+    def stop(self, timeout: float | None = None) -> bool:
+        if timeout is None:
+            timeout = _default_stop_timeout()
         self._stop_requested = True
         self.last_error = None
         with self._lock:
@@ -307,7 +315,9 @@ class ServerManager:
             clear_pid_for(self.config.id)
         return True
 
-    def request_stop(self, timeout: float = 30) -> bool:
+    def request_stop(self, timeout: float | None = None) -> bool:
+        if timeout is None:
+            timeout = _default_stop_timeout()
         with self._lock:
             if not self.is_running() or self._stopping:
                 return False
@@ -322,7 +332,9 @@ class ServerManager:
         with self._lock:
             return self._starting
 
-    def request_restart(self, timeout: float = 30) -> bool:
+    def request_restart(self, timeout: float | None = None) -> bool:
+        if timeout is None:
+            timeout = _default_stop_timeout()
         with self._lock:
             if not self.is_running() or self._stopping:
                 return False

@@ -10,16 +10,14 @@ from urllib.parse import urlparse
 
 import aiohttp
 
-from server.config import SERVER_DIR, ServerConfig
-
-PROJECTS_STORAGE = SERVER_DIR / "projects"
+from server.config import get_projects_dir, ServerConfig
 
 MODRINTH_API = "https://api.modrinth.com/v2"
 CF_API = "https://api.curseforge.com/v1"
 
 
 def _modpack_dir(project_id: str, modpack_id: str) -> Path:
-    return PROJECTS_STORAGE / project_id / "modpacks" / modpack_id
+    return get_projects_dir() / project_id / "modpacks" / modpack_id
 
 
 def _safe_extract_zip(zf: zipfile.ZipFile, dest: Path):
@@ -237,7 +235,7 @@ async def import_modpack_archive(
 ) -> dict:
     cfg = ServerConfig.load()
     api_key = getattr(cfg, "curseforge_api_key", "") or ""
-    tmp_dir = PROJECTS_STORAGE / "tmp" / modpack_id
+    tmp_dir = get_projects_dir() / "tmp" / modpack_id
     mp_dir = _modpack_dir(project_id, modpack_id)
     mp_dir.mkdir(parents=True, exist_ok=True)
 

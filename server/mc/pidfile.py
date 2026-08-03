@@ -102,7 +102,11 @@ def is_running(instance_id: str) -> bool:
     return False
 
 
-def stop_process(instance_id: str, timeout: float = 30) -> bool:
+def stop_process(instance_id: str, timeout: float | None = None) -> bool:
+    if timeout is None:
+        from server.config import ServerConfig
+
+        timeout = float(getattr(ServerConfig.load(), "server_stop_timeout", 30.0))
     pid = read_pid_for(instance_id)
     if pid is None:
         return False

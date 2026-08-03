@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy import select
 
-from server.config import SERVER_DIR
+from server.config import get_projects_dir, get_injector_dir
 from server.database import get_session, init_db
 from server.models import ProjectModel, ProjectNewsModel, ModpackModel, InstanceModel
 from server.mc.status import probe
@@ -19,8 +19,6 @@ from server.web.auth import require_admin
 projects_router = APIRouter()
 news_router = APIRouter()
 launcher_router = APIRouter()
-
-PROJECTS_STORAGE = SERVER_DIR / "projects"
 
 _VALID_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -34,7 +32,7 @@ def _is_within(base: Path, target: Path) -> bool:
 
 
 def _modpack_dir(project_id: str, modpack_id: str) -> Path:
-    return PROJECTS_STORAGE / project_id / "modpacks" / modpack_id
+    return get_projects_dir() / project_id / "modpacks" / modpack_id
 
 
 def _get_modpack_file_count(project_id: str, modpack_id: str) -> int:
@@ -160,7 +158,7 @@ async def delete_project(project_id: str):
         project = await session.get(ProjectModel, project_id)
         if not project:
             return JSONResponse(content={"error": "Not found"}, status_code=404)
-        storage = PROJECTS_STORAGE / project_id
+        storage = get_projects_dir() / project_id
         if storage.exists():
             shutil.rmtree(storage, ignore_errors=True)
         await session.delete(project)
@@ -469,7 +467,7 @@ async def launcher_injector():
     Downloads the JAR on first request (cached in the server dir).
     """
     from server.mc.injector import InjectorManager
-    mgr = InjectorManager(SERVER_DIR / "injector")
+    mgr = InjectorManager(get_injector_dir())
     if not mgr.is_downloaded():
         try:
             mgr.download()

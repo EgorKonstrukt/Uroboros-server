@@ -6,10 +6,16 @@ from fastapi import HTTPException, Request
 from starlette.status import HTTP_401_UNAUTHORIZED
 
 _tokens: dict[str, float] = {}
-TOKEN_EXPIRY = timedelta(hours=24).total_seconds()
 
 PUBLIC_PREFIXES = {"/admin/login", "/admin/auth-status", "/admin/static"}
 EXACT_PUBLIC = {"/admin/", "/admin/dashboard"}
+
+
+def _token_expiry() -> float:
+    from server.config import ServerConfig
+
+    cfg = ServerConfig.load()
+    return timedelta(hours=max(1, int(getattr(cfg, "token_expiry_hours", 24)))).total_seconds()
 
 
 def _cleanup():
@@ -21,7 +27,7 @@ def _cleanup():
 
 def create_token() -> str:
     token = secrets.token_hex(32)
-    _tokens[token] = time.time() + TOKEN_EXPIRY
+    _tokens[token] = time.time() + _token_expiry()
     return token
 
 

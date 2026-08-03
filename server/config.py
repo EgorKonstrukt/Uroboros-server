@@ -38,6 +38,20 @@ class ServerConfig:
     stats_refresh_seconds: int = 2
     console_refresh_ms: int = 500
     trust_proxy_headers: bool = False
+    token_expiry_hours: int = 24
+    access_token_ttl_hours: int = 24
+    auth_limiter_max_hits: int = 10
+    auth_limiter_window_seconds: int = 60
+    login_limiter_max_hits: int = 5
+    login_limiter_window_seconds: int = 300
+    max_skin_size_mb: int = 10
+    tps_probe_interval: float = 20.0
+    status_probe_timeout: float = 3.0
+    server_stop_timeout: float = 30.0
+    servers_dir: str = ""
+    projects_dir: str = ""
+    java_dir: str = ""
+    injector_dir: str = ""
 
     def save(self):
         SERVER_DIR.mkdir(parents=True, exist_ok=True)
@@ -83,3 +97,28 @@ class ServerConfig:
         self.admin_password = hash_password(generated)
         self.admin_password_plain = generated
         print(f"[Uroboros] Generated admin panel password: {generated}")
+
+
+def _resolve_dir(value: str, default: Path) -> Path:
+    if not value:
+        return default
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = SERVER_DIR / path
+    return path
+
+
+def get_servers_dir() -> Path:
+    return _resolve_dir(ServerConfig.load().servers_dir, SERVER_DIR / "servers")
+
+
+def get_projects_dir() -> Path:
+    return _resolve_dir(ServerConfig.load().projects_dir, SERVER_DIR / "projects")
+
+
+def get_java_dir() -> Path:
+    return _resolve_dir(ServerConfig.load().java_dir, SERVER_DIR / "java")
+
+
+def get_injector_dir() -> Path:
+    return _resolve_dir(ServerConfig.load().injector_dir, SERVER_DIR / "injector")

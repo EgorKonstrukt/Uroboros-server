@@ -24,8 +24,14 @@ from fastapi import Depends
 router = APIRouter()
 yggdrasil_router = APIRouter()
 
-ACCESS_TOKEN_TTL = timedelta(hours=24)
 SERVER_SESSION_TTL = timedelta(seconds=30)
+
+
+def _access_token_ttl() -> timedelta:
+    from server.config import ServerConfig
+
+    cfg = ServerConfig.load()
+    return timedelta(hours=max(1, int(getattr(cfg, "access_token_ttl_hours", 24))))
 
 
 def _now() -> datetime:
@@ -157,7 +163,7 @@ def _issue_token(user: UserModel, client_token: str) -> str:
     token = new_token()
     user.access_token_hash = hash_token(token)
     user.client_token_hash = hash_token(client_token) if client_token else ""
-    user.token_expires_at = _now() + ACCESS_TOKEN_TTL
+    user.token_expires_at = _now() + _access_token_ttl()
     return token
 
 

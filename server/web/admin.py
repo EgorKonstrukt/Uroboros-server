@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Request, File, Form, UploadFile, Body
 from fastapi.responses import JSONResponse, HTMLResponse
 from starlette.responses import FileResponse
 
-from server.config import ServerConfig, SERVER_DIR
+from server.config import ServerConfig, SERVER_DIR, get_projects_dir
 from server.web.auth import require_admin, create_token, delete_token
 from server.auth.ratelimit import login_limiter
 from server.auth.crypto import hash_password, check_password
@@ -43,26 +43,26 @@ router = APIRouter(dependencies=[Depends(require_admin)])
 _template_dir = Path(__file__).parent / "templates"
 
 _INSTANCE_FIELD_META = {
-    "name": {"label": "Server Name", "description": "Human-readable server name"},
-    "enabled": {"label": "Enabled", "description": "Enable this server instance"},
-    "server_dir": {"label": "Server Directory", "description": "Working directory for the MC server"},
-    "server_filename": {"label": "Server JAR", "description": "Minecraft server JAR filename"},
-    "java_executable_path": {"label": "Java Executable", "description": "Java binary for this server (default: java from PATH)"},
-    "max_memory": {"label": "Max Memory (MB)", "description": "Max heap size (-Xmx)"},
-    "min_memory": {"label": "Min Memory (MB)", "description": "Min heap size (-Xms)"},
-    "additional_flags": {"label": "JVM Flags", "description": "Extra JVM flags"},
-    "arguments": {"label": "Server Arguments", "description": "Args passed to the JAR (e.g. --nogui)"},
-    "api_url": {"label": "Auth API URL", "description": "Auth server URL for the injector"},
-    "public_address": {"label": "Server Address", "description": "Address shown to players (e.g. 82.162.59.243:25565). Leave empty to auto-derive from Auth API URL"},
-    "auth_plugin": {"label": "Auth Plugin", "description": "Authentication plugin type"},
-    "injector_filename": {"label": "Injector JAR", "description": "authlib-injector JAR filename"},
-    "auto_restart": {"label": "Auto Restart", "description": "Automatically restart on crash"},
-    "auto_accept_eula": {"label": "Auto Accept EULA", "description": "Write eula=true before starting"},
-    "whitelist_enabled": {"label": "Whitelist Mode", "description": "Enable whitelist and sync player nicknames from the database"},
-    "version": {"label": "MC Version", "description": "Minecraft version (e.g. 1.20.1)"},
-    "jar_url": {"label": "JAR Download URL", "description": "URL to download server JAR (optional)"},
-    "project_id": {"label": "Linked Project ID", "description": "Project that this instance belongs to"},
-    "modpack_id": {"label": "Modpack", "description": "Modpack to install on this server"},
+    "name": {"group": "General", "label": "Server Name", "description": "Human-readable server name"},
+    "enabled": {"group": "General", "label": "Enabled", "description": "Enable this server instance"},
+    "version": {"group": "General", "label": "MC Version", "description": "Minecraft version (e.g. 1.20.1)"},
+    "project_id": {"group": "General", "label": "Linked Project ID", "description": "Project that this instance belongs to"},
+    "modpack_id": {"group": "General", "label": "Modpack", "description": "Modpack to install on this server"},
+    "server_dir": {"group": "Paths", "label": "Server Directory", "description": "Working directory for the MC server"},
+    "server_filename": {"group": "Paths", "label": "Server JAR", "description": "Minecraft server JAR filename"},
+    "java_executable_path": {"group": "Paths", "label": "Java Executable", "description": "Java binary for this server (default: java from PATH)"},
+    "injector_filename": {"group": "Paths", "label": "Injector JAR", "description": "authlib-injector JAR filename"},
+    "max_memory": {"group": "Startup", "label": "Max Memory (MB)", "description": "Max heap size (-Xmx)"},
+    "min_memory": {"group": "Startup", "label": "Min Memory (MB)", "description": "Min heap size (-Xms)"},
+    "additional_flags": {"group": "Startup", "label": "JVM Flags", "description": "Extra JVM flags"},
+    "arguments": {"group": "Startup", "label": "Server Arguments", "description": "Args passed to the JAR (e.g. --nogui)"},
+    "jar_url": {"group": "Startup", "label": "JAR Download URL", "description": "URL to download server JAR (optional)"},
+    "api_url": {"group": "Auth", "label": "Auth API URL", "description": "Auth server URL for the injector"},
+    "public_address": {"group": "Auth", "label": "Server Address", "description": "Address shown to players (e.g. 82.162.59.243:25565). Leave empty to auto-derive from Auth API URL"},
+    "auth_plugin": {"group": "Auth", "label": "Auth Plugin", "description": "Authentication plugin type"},
+    "auto_restart": {"group": "Behavior", "label": "Auto Restart", "description": "Automatically restart on crash"},
+    "auto_accept_eula": {"group": "Behavior", "label": "Auto Accept EULA", "description": "Write eula=true before starting"},
+    "whitelist_enabled": {"group": "Behavior", "label": "Whitelist Mode", "description": "Enable whitelist and sync player nicknames from the database"},
 }
 
 
@@ -259,7 +259,12 @@ def _instance_to_api(inst: InstanceModel) -> dict:
 
 _tps_state: dict[str, dict] = {}
 _tps_probe_lock = threading.Lock()
-_TPS_PROBE_INTERVAL = 20.0
+
+
+def _tps_probe_interval() -> float:
+    from server.config import ServerConfig
+
+    return float(getattr(ServerConfig.load(), "tps_probe_interval", 20.0))
 
 
 def _tps_reading(inst: InstanceModel, mgr) -> Optional[float]:
@@ -273,7 +278,7 @@ def _tps_reading(inst: InstanceModel, mgr) -> Optional[float]:
         if state is None or state.get("run") != run_id:
             state = {"run": run_id, "probe_at": 0.0, "cursor": mgr.get_output_cursor(), "value": None}
             _tps_state[inst.id] = state
-        if now - state["probe_at"] >= _TPS_PROBE_INTERVAL:
+        if now - state["probe_at"] >= _tps_probe_interval():
             state["probe_at"] = now
             state["cursor"] = mgr.get_output_cursor()
             mgr.send_command(cmd)
@@ -509,6 +514,7 @@ async def instance_schema(instance_id: str):
             "default": default_val,
             "label": meta.get("label", key),
             "description": meta.get("description", ""),
+            "group": meta.get("group", "General"),
         }
         if key == "auth_plugin":
             item["options"] = ["injector", ""]
@@ -674,14 +680,31 @@ async def get_config():
 
 
 _GLOBAL_FIELD_META = {
-    "host": {"label": "Bind Host", "description": "IP address for the HTTP server"},
-    "port": {"label": "Port", "description": "HTTP server port"},
-    "db_path": {"label": "Database Path", "description": "SQLite database file location"},
-    "admin_password": {"label": "Admin Password", "description": "Password to protect this panel (auto-generated if empty)"},
-    "log_level": {"label": "Log Level", "description": "Logging verbosity"},
-    "curseforge_api_key": {"label": "CurseForge API Key", "description": "API key for CurseForge mod resolution (optional)"},
-    "stats_refresh_seconds": {"label": "Overview Refresh Rate", "description": "How often the server overview auto-refreshes (seconds, 1-60)"},
-    "console_refresh_ms": {"label": "Console Refresh Rate (ms)", "description": "How often the admin console auto-refreshes (milliseconds, 100-60000)"},
+    "host": {"group": "Server", "label": "Bind Host", "description": "IP address for the HTTP server"},
+    "port": {"group": "Server", "label": "Port", "description": "HTTP server port"},
+    "log_level": {"group": "Server", "label": "Log Level", "description": "Logging verbosity"},
+    "ssl_certfile": {"group": "Server", "label": "SSL Certificate", "description": "Path to the TLS certificate file (optional)"},
+    "ssl_keyfile": {"group": "Server", "label": "SSL Key", "description": "Path to the TLS private key file (optional)"},
+    "trust_proxy_headers": {"group": "Server", "label": "Trust Proxy Headers", "description": "Trust X-Forwarded-For headers when behind a reverse proxy"},
+    "db_path": {"group": "Storage", "label": "Database Path", "description": "SQLite database file location"},
+    "servers_dir": {"group": "Storage", "label": "Servers Directory", "description": "Storage location for new server instances (empty = default)"},
+    "projects_dir": {"group": "Storage", "label": "Projects Directory", "description": "Storage location for modpack projects (empty = default)"},
+    "java_dir": {"group": "Storage", "label": "Java Directory", "description": "Storage location for managed Java runtimes (empty = default)"},
+    "injector_dir": {"group": "Storage", "label": "Injector Directory", "description": "Storage location for authlib-injector JARs (empty = default)"},
+    "admin_password": {"group": "Security", "label": "Admin Password", "description": "Password to protect this panel (auto-generated if empty)"},
+    "token_expiry_hours": {"group": "Security", "label": "Panel Token Lifetime (hours)", "description": "How long admin panel auth tokens stay valid"},
+    "access_token_ttl_hours": {"group": "Security", "label": "Access Token Lifetime (hours)", "description": "How long Minecraft auth access tokens stay valid"},
+    "auth_limiter_max_hits": {"group": "Security", "label": "Auth API Rate Limit (hits)", "description": "Max auth requests per client within the window"},
+    "auth_limiter_window_seconds": {"group": "Security", "label": "Auth API Rate Limit Window (s)", "description": "Window for the auth API rate limit"},
+    "login_limiter_max_hits": {"group": "Security", "label": "Login Rate Limit (hits)", "description": "Max panel login attempts per IP within the window"},
+    "login_limiter_window_seconds": {"group": "Security", "label": "Login Rate Limit Window (s)", "description": "Window for the panel login rate limit"},
+    "max_skin_size_mb": {"group": "Security", "label": "Max Skin Size (MB)", "description": "Maximum size for uploaded player skins"},
+    "stats_refresh_seconds": {"group": "Monitoring", "label": "Overview Refresh Rate", "description": "How often the server overview auto-refreshes (seconds, 1-60)"},
+    "console_refresh_ms": {"group": "Monitoring", "label": "Console Refresh Rate (ms)", "description": "How often the admin console auto-refreshes (milliseconds, 100-60000)"},
+    "tps_probe_interval": {"group": "Monitoring", "label": "TPS Probe Interval (s)", "description": "How often TPS is probed on running instances"},
+    "status_probe_timeout": {"group": "Monitoring", "label": "Status Probe Timeout (s)", "description": "Socket timeout when pinging MC server status"},
+    "server_stop_timeout": {"group": "Monitoring", "label": "Server Stop Timeout (s)", "description": "How long to wait for a graceful server stop before killing"},
+    "curseforge_api_key": {"group": "Integrations", "label": "CurseForge API Key", "description": "API key for CurseForge mod resolution (optional)"},
 }
 
 
@@ -700,6 +723,8 @@ async def get_config_schema():
             stype = "bool"
         elif ftype is int:
             stype = "int"
+        elif ftype is float:
+            stype = "float"
         else:
             stype = "str"
         item = {
@@ -709,6 +734,7 @@ async def get_config_schema():
             "default": f.default if f.default != f.default_factory else None,
             "label": meta.get("label", f.name),
             "description": meta.get("description", ""),
+            "group": meta.get("group", "General"),
         }
         if f.name == "admin_password":
             item["type"] = "password"
@@ -748,6 +774,12 @@ async def update_config(body: dict):
                 value = int(value)
             except (TypeError, ValueError):
                 errors.append(f"{key}: expected integer")
+                continue
+        elif expected is float:
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                errors.append(f"{key}: expected number")
                 continue
         setattr(cfg, key, value)
         updated[key] = "" if key == "admin_password" else value
@@ -1473,19 +1505,21 @@ async def update_check():
 def _stop_instance_for_update(instance_id, inst):
     from server.mc.registry import get_manager_sync
     from server.mc.pidfile import stop_process
+    from server.config import ServerConfig
     if inst is None:
         return False
     try:
+        timeout = float(getattr(ServerConfig.load(), "server_stop_timeout", 30.0))
         mgr = get_manager_sync(inst)
         if mgr is not None and mgr.is_running():
-            mgr.request_stop(timeout=30)
-            deadline = time.time() + 90
+            mgr.request_stop(timeout=timeout)
+            deadline = time.time() + max(30.0, timeout * 3)
             while time.time() < deadline and mgr.is_running():
                 time.sleep(0.5)
             return not mgr.is_running()
     except Exception:
         pass
-    return stop_process(instance_id, timeout=30)
+    return stop_process(instance_id, timeout=timeout)
 
 
 def _start_instance_for_update(instance_id, inst):
@@ -1647,11 +1681,9 @@ async def update_cancel():
 
 # ── Modpack management ──
 
-PROJECTS_STORAGE = SERVER_DIR / "projects"
-
 
 def _modpack_dir(project_id: str, modpack_id: str) -> Path:
-    return PROJECTS_STORAGE / project_id / "modpacks" / modpack_id
+    return get_projects_dir() / project_id / "modpacks" / modpack_id
 
 
 def _update_files_hash(project_id: str, modpack_id: str):
@@ -1698,7 +1730,7 @@ async def _get_modpack(project_id: str, modpack_id: str) -> ModpackModel | None:
 
 async def _migrate_modpacks_from_json():
     """One-time migration from JSON metadata files to DB."""
-    projects_dir = PROJECTS_STORAGE
+    projects_dir = get_projects_dir()
     if not projects_dir.exists():
         return
     async with get_session() as session:
@@ -2590,7 +2622,12 @@ async def admin_change_password(user_id: int, body: dict):
     return {"status": "updated"}
 
 
-MAX_SKIN_SIZE = 10 * 1024 * 1024
+def _max_skin_size() -> int:
+    from server.config import ServerConfig
+
+    return int(getattr(ServerConfig.load(), "max_skin_size_mb", 10)) * 1024 * 1024
+
+
 ALLOWED_SKIN_TYPES = {"image/png", "image/jpeg"}
 
 
@@ -2602,8 +2639,8 @@ def _validate_skin_model(model: str) -> str:
 @router.post("/users/{user_id}/skin")
 async def admin_upload_skin(user_id: int, file: UploadFile = File(...), model: str = Form("classic")):
     data = await file.read()
-    if len(data) > MAX_SKIN_SIZE:
-        return JSONResponse(content={"error": "Skin file too large (max 10 MB)"}, status_code=400)
+    if len(data) > _max_skin_size():
+        return JSONResponse(content={"error": "Skin file too large"}, status_code=400)
     ctype = (file.content_type or "").lower()
     if ctype not in ALLOWED_SKIN_TYPES:
         return JSONResponse(content={"error": "Skin must be a PNG or JPEG image"}, status_code=400)

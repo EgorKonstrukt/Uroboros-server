@@ -36,5 +36,16 @@ class RateLimiter:
             self._hits.pop(key, None)
 
 
-auth_limiter = RateLimiter(max_hits=10, window_seconds=60.0)
-login_limiter = RateLimiter(max_hits=5, window_seconds=300.0)
+def _limiter_params(kind: str):
+    from server.config import ServerConfig
+
+    cfg = ServerConfig.load()
+    if kind == "auth":
+        return int(getattr(cfg, "auth_limiter_max_hits", 10)), float(getattr(cfg, "auth_limiter_window_seconds", 60.0))
+    return int(getattr(cfg, "login_limiter_max_hits", 5)), float(getattr(cfg, "login_limiter_window_seconds", 300.0))
+
+
+_auth_max, _auth_window = _limiter_params("auth")
+auth_limiter = RateLimiter(max_hits=_auth_max, window_seconds=_auth_window)
+_login_max, _login_window = _limiter_params("login")
+login_limiter = RateLimiter(max_hits=_login_max, window_seconds=_login_window)

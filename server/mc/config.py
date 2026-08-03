@@ -1,11 +1,11 @@
 from typing import Optional
 
-from server.config import SERVER_DIR
+from server.config import get_servers_dir
 from server.models import InstanceModel
 
 
 def default_server_dir(instance_id: str) -> str:
-    return str(SERVER_DIR / "servers" / (instance_id or "default"))
+    return str(get_servers_dir() / (instance_id or "default"))
 
 
 def instance_model_to_dict(inst: InstanceModel) -> dict:

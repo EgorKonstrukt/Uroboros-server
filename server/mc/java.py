@@ -12,11 +12,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional
 
-from server.config import SERVER_DIR
+from server.config import get_java_dir
 from server.mc.download import DownloadCancelled, DownloadHandle
-
-
-JAVA_DIR = SERVER_DIR / "java"
 
 
 @dataclass
@@ -41,7 +38,7 @@ def get_cached() -> List[JavaRuntime]:
 def _refresh_cache(merge_keep_installed: bool = True) -> None:
     global _JAVA_CACHE
     found: dict[str, JavaRuntime] = {}
-    installed_prefix = str(JAVA_DIR.resolve())
+    installed_prefix = str(get_java_dir().resolve())
 
     for path in _find_candidates():
         if path in found:
@@ -157,9 +154,9 @@ def _find_candidates() -> List[str]:
             if p.exists():
                 add(str(p.resolve()))
 
-    if JAVA_DIR.exists():
+    if get_java_dir().exists():
         for exe in ("java.exe", "java"):
-            for sub in sorted(JAVA_DIR.iterdir()):
+            for sub in sorted(get_java_dir().iterdir()):
                 if sub.is_dir():
                     p = sub / "bin" / exe
                     if p.exists():
@@ -262,8 +259,8 @@ def get_platform() -> dict:
 
 def get_installed() -> List[JavaRuntime]:
     runtimes = []
-    if JAVA_DIR.exists():
-        for child in sorted(JAVA_DIR.iterdir()):
+    if get_java_dir().exists():
+        for child in sorted(get_java_dir().iterdir()):
             if not child.is_dir():
                 continue
             jb = _find_java_bin(child)
@@ -292,7 +289,7 @@ def _find_java_bin(root: Path) -> Optional[Path]:
 
 def _installed_root(path: str) -> Optional[Path]:
     resolved = Path(path).resolve()
-    base = JAVA_DIR.resolve()
+    base = get_java_dir().resolve()
     for parent in resolved.parents:
         if parent.parent == base:
             return parent
@@ -510,8 +507,8 @@ async def install_java(
     total_size = asset["size"]
     is_zip = download_url.endswith(".zip")
 
-    JAVA_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_root = JAVA_DIR / f"__tmp_{uuid.uuid4().hex}"
+    get_java_dir().mkdir(parents=True, exist_ok=True)
+    tmp_root = get_java_dir() / f"__tmp_{uuid.uuid4().hex}"
     tmp_root.mkdir(parents=True)
     archive_path = tmp_root / f"jdk{version}{'.zip' if is_zip else '.tar.gz'}"
     try:
@@ -524,9 +521,9 @@ async def install_java(
             raise RuntimeError("Installed JDK does not contain a java binary")
         root_dir = jb.parent.parent
         final_name = root_dir.name or f"jdk-{version}"
-        dest = JAVA_DIR / final_name
+        dest = get_java_dir() / final_name
         if dest.exists():
-            dest = JAVA_DIR / f"{final_name}-{uuid.uuid4().hex[:6]}"
+            dest = get_java_dir() / f"{final_name}-{uuid.uuid4().hex[:6]}"
         shutil.move(str(root_dir), str(dest))
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)

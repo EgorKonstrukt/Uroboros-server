@@ -39,7 +39,11 @@ def _read_fully(sock: socket.socket, length: int) -> bytes:
     return data
 
 
-def probe(host: str, port: int, timeout: float = 3.0) -> dict:
+def probe(host: str, port: int, timeout: float | None = None) -> dict:
+    if timeout is None:
+        from server.config import ServerConfig
+
+        timeout = float(getattr(ServerConfig.load(), "status_probe_timeout", 3.0))
     start = time.monotonic()
     try:
         with socket.create_connection((host, port), timeout=timeout) as sock:

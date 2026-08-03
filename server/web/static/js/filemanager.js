@@ -40,7 +40,7 @@ FileManager.prototype.init = function () {
 };
 
 FileManager.prototype.j = function (method, args) {
-    return this.mv + '.' + method + '(' + (args || '') + ')';
+    return this.mv + '.' + method + '(' + (args === undefined ? '' : args) + ')';
 };
 
 FileManager.prototype.setBusy = function (b) {
@@ -466,23 +466,27 @@ FileManager.prototype.uploadEntries = async function (entries) {
     var self = this;
     var done = 0;
     var errs = [];
-    for (var start = 0; start < entries.length; start += 100) {
-        var chunk = entries.slice(start, start + 100);
-        var fd = new FormData();
-        if (this.path) fd.append('path', this.path);
-        for (var j = 0; j < chunk.length; j++) {
-            fd.append('file', chunk[j].file, chunk[j].file.name);
-            fd.append('relpath', chunk[j].rel);
+    try {
+        for (var start = 0; start < entries.length; start += 100) {
+            var chunk = entries.slice(start, start + 100);
+            var fd = new FormData();
+            if (this.path) fd.append('path', this.path);
+            for (var j = 0; j < chunk.length; j++) {
+                fd.append('file', chunk[j].file, chunk[j].file.name);
+                fd.append('relpath', chunk[j].rel);
+            }
+            try {
+                var r = await apiFetch(this.cfg.uploadBatchUrl(), { method: 'POST', body: fd });
+                if (!r) return;
+                var d = await r.json();
+                done += d.uploaded || 0;
+                if (d.errors) errs = errs.concat(d.errors);
+            } catch (e) {
+                errs.push({ error: e.message });
+            }
         }
-        try {
-            var r = await apiFetch(this.cfg.uploadBatchUrl(), { method: 'POST', body: fd });
-            if (!r) return;
-            var d = await r.json();
-            done += d.uploaded || 0;
-            if (d.errors) errs = errs.concat(d.errors);
-        } catch (e) {
-            errs.push({ error: e.message });
-        }
+    } catch (e) {
+        errs.push({ error: e.message });
     }
     self.showUploadResult(done, errs);
     this.load(this.path);
@@ -566,33 +570,37 @@ FileManager.prototype.startUpload = async function () {
     this.renderQueue();
     var total = 0;
     var errs = [];
-    for (var qi = 0; qi < this.queue.length; qi++) {
-        var q = this.queue[qi];
-        q.progress = 0;
-        for (var start = 0; start < q.entries.length; start += 100) {
-            var chunk = q.entries.slice(start, start + 100);
-            var fd = new FormData();
-            if (this.path) fd.append('path', this.path);
-            for (var j = 0; j < chunk.length; j++) {
-                fd.append('file', chunk[j].file, chunk[j].file.name);
-                fd.append('relpath', chunk[j].rel);
-            }
-            try {
-                var r = await apiFetch(this.cfg.uploadBatchUrl(), { method: 'POST', body: fd });
-                if (!r) { errs.push({ error: 'no response' }); }
-                else {
-                    var d = await r.json();
-                    total += d.uploaded || 0;
-                    if (d.errors) errs = errs.concat(d.errors);
+    try {
+        for (var qi = 0; qi < this.queue.length; qi++) {
+            var q = this.queue[qi];
+            q.progress = 0;
+            for (var start = 0; start < q.entries.length; start += 100) {
+                var chunk = q.entries.slice(start, start + 100);
+                var fd = new FormData();
+                if (this.path) fd.append('path', this.path);
+                for (var j = 0; j < chunk.length; j++) {
+                    fd.append('file', chunk[j].file, chunk[j].file.name);
+                    fd.append('relpath', chunk[j].rel);
                 }
-            } catch (e) {
-                errs.push({ error: e.message });
+                try {
+                    var r = await apiFetch(this.cfg.uploadBatchUrl(), { method: 'POST', body: fd });
+                    if (!r) { errs.push({ error: 'no response' }); }
+                    else {
+                        var d = await r.json();
+                        total += d.uploaded || 0;
+                        if (d.errors) errs = errs.concat(d.errors);
+                    }
+                } catch (e) {
+                    errs.push({ error: e.message });
+                }
+                q.progress = start + chunk.length;
+                this.renderQueue();
             }
-            q.progress = start + chunk.length;
+            q.done = true;
             this.renderQueue();
         }
-        q.done = true;
-        this.renderQueue();
+    } catch (e) {
+        errs.push({ error: e.message });
     }
     this.uploading = false;
     this.showUploadResult(total, errs);
@@ -630,7 +638,13 @@ FileManager.prototype.handleDrop = function (items) {
     if (!entries.length) return;
     Promise.all(entries.map(function (en) {
         if (en.isFile) {
-            return Promise.resolve([{ rel: en.file ? en.file.name : en.name, file: en.file || en }]);
+            return new Promise(function (resolve) {
+                if (typeof en.file === 'function') {
+                    en.file(function (f) { resolve([{ rel: f.name, file: f }]); }, function () { resolve([]); });
+                } else {
+                    resolve([{ rel: en.file.name, file: en.file }]);
+                }
+            });
         }
         return walkDirEntry(en);
     })).then(function (groups) {
