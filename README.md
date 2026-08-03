@@ -1,3 +1,4 @@
+![img.png](img.png)
 # Uroboros Server
 
 Uroboros Server is a self-hosted Minecraft server management platform with a built-in authentication server. It runs Minecraft servers on your own machine, exposes a compatible Yggdrasil API so launchers can authenticate against it, and gives you a browser-based admin panel to control everything.
