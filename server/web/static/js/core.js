@@ -52,7 +52,7 @@ function closeModal(id) {
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 function escAttr(s) {
-    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\/g, '\\\\').replace(/[\x00-\x1f\x7f]/g, function (m) { return '\\u' + ('000' + m.charCodeAt(0).toString(16)).slice(-4); }).replace(/'/g, "\\'");
 }
 
 function formatSize(bytes) {
