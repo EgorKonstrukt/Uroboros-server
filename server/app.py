@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -54,6 +55,18 @@ app.include_router(launcher_router, prefix="/launcher")
 async def root(request: Request):
     host = request.url.hostname or "127.0.0.1"
     skin_domains = ["localhost", "127.0.0.1", "0.0.0.0", host]
+    try:
+        from server.config import ServerConfig
+        public = (getattr(ServerConfig.load(), "public_url", "") or "").strip()
+        if public:
+            try:
+                public_host = urlparse(public if "://" in public else f"//{public}").hostname
+                if public_host:
+                    skin_domains.append(public_host)
+            except ValueError:
+                pass
+    except Exception:
+        pass
     seen = []
     for d in skin_domains:
         if d and d not in seen:

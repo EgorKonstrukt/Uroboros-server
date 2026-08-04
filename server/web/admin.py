@@ -58,7 +58,7 @@ _INSTANCE_FIELD_META = {
     "arguments": {"group": "Startup", "label": "Server Arguments", "description": "Args passed to the JAR (e.g. --nogui)"},
     "jar_url": {"group": "Startup", "label": "JAR Download URL", "description": "URL to download server JAR (optional)"},
     "api_url": {"group": "Auth", "label": "Auth API URL", "description": "Auth server URL for the injector"},
-    "public_address": {"group": "Auth", "label": "Server Address", "description": "Address shown to players (e.g. 82.162.59.243:25565). Leave empty to auto-derive from Auth API URL"},
+    "public_address": {"group": "Auth", "label": "Server Address", "description": "Address shown to players. Leave empty to auto-derive from Auth API URL"},
     "auth_plugin": {"group": "Auth", "label": "Auth Plugin", "description": "Authentication plugin type"},
     "auto_restart": {"group": "Behavior", "label": "Auto Restart", "description": "Automatically restart on crash"},
     "auto_accept_eula": {"group": "Behavior", "label": "Auto Accept EULA", "description": "Write eula=true before starting"},
@@ -682,6 +682,7 @@ async def get_config():
 _GLOBAL_FIELD_META = {
     "host": {"group": "Server", "label": "Bind Host", "description": "IP address for the HTTP server"},
     "port": {"group": "Server", "label": "Port", "description": "HTTP server port"},
+    "public_url": {"group": "Server", "label": "Public URL", "description": "Public base URL of this auth server (e.g. http://82.162.59.243:25581). Used in skin URLs so all players can download skins"},
     "log_level": {"group": "Server", "label": "Log Level", "description": "Logging verbosity"},
     "ssl_certfile": {"group": "Server", "label": "SSL Certificate", "description": "Path to the TLS certificate file (optional)"},
     "ssl_keyfile": {"group": "Server", "label": "SSL Key", "description": "Path to the TLS private key file (optional)"},

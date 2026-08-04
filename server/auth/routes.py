@@ -156,7 +156,15 @@ def _user_properties(user: UserModel, base_url: str) -> list:
 
 
 def _base_url(request: Request) -> str:
-    return str(request.base_url).rstrip("/")
+    base = str(request.base_url).rstrip("/")
+    try:
+        from server.config import ServerConfig
+        public = (getattr(ServerConfig.load(), "public_url", "") or "").strip()
+        if public:
+            return public.rstrip("/")
+    except Exception:
+        pass
+    return base
 
 
 def _issue_token(user: UserModel, client_token: str) -> str:

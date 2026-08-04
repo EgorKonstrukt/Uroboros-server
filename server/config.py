@@ -28,6 +28,7 @@ def _resolve_db_path(value: str) -> str:
 class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 25581
+    public_url: str = ""
     db_path: str = ""
     admin_password: str = ""
     admin_password_plain: str = ""
