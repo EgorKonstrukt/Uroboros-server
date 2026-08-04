@@ -2,6 +2,7 @@ import json
 import asyncio
 import re
 import shutil
+import hashlib
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -42,6 +43,21 @@ def _get_modpack_file_count(project_id: str, modpack_id: str) -> int:
     return len([f for f in mp_dir.rglob("*") if f.is_file() and f.name != "files.json"])
 
 
+def _modpack_manifest_hash(project_id: str, modpack_id: str) -> str:
+    mp_dir = _modpack_dir(project_id, modpack_id)
+    index_path = mp_dir / "files.json"
+    if not index_path.exists():
+        return ""
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(index, dict):
+        return ""
+    payload = "\n".join(f"{name}:{sha}" for name, sha in sorted(index.items()) if sha)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 async def _modpack_model_to_dict(m: ModpackModel) -> dict:
     return {
         "id": m.id,
@@ -57,6 +73,7 @@ async def _modpack_model_to_dict(m: ModpackModel) -> dict:
         "java_path": m.java_path,
         "changelog": m.changelog,
         "file_count": _get_modpack_file_count(m.project_id, m.id),
+        "manifest_hash": _modpack_manifest_hash(m.project_id, m.id),
     }
 
 

@@ -1698,6 +1698,21 @@ def _update_files_hash(project_id: str, modpack_id: str):
     (mp_dir / "files.json").write_text(json.dumps(index, indent=2), encoding="utf-8")
 
 
+def _modpack_manifest_hash(project_id: str, modpack_id: str) -> str:
+    mp_dir = _modpack_dir(project_id, modpack_id)
+    index_path = mp_dir / "files.json"
+    if not index_path.exists():
+        return ""
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(index, dict):
+        return ""
+    payload = "\n".join(f"{name}:{sha}" for name, sha in sorted(index.items()) if sha)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 async def _modpack_model_to_dict(m: ModpackModel) -> dict:
     mp_dir = _modpack_dir(m.project_id, m.id)
     file_count = len([f for f in mp_dir.iterdir() if f.is_file()]) if mp_dir.exists() else 0
@@ -1715,6 +1730,7 @@ async def _modpack_model_to_dict(m: ModpackModel) -> dict:
         "java_path": m.java_path,
         "changelog": m.changelog,
         "file_count": file_count,
+        "manifest_hash": _modpack_manifest_hash(m.project_id, m.id),
     }
 
 
