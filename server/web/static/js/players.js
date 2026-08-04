@@ -96,6 +96,7 @@ function renderPlayers() {
             '<td>' + bansHtml + '</td>' +
             '<td class="players-actions">' + actions + '</td>';
         tbody.appendChild(tr);
+        Uroboros.emit('players:row', { user: u, tr: tr, tbody: tbody });
         var headImg = tr.querySelector('img.player-head[data-src]');
         if (headImg) cropHead(headImg);
     }

@@ -1,0 +1,78 @@
+      <div id="backupsPanel" class="panel">
+        <div class="panel-header">
+          <h3>Backups</h3>
+          <span class="panel-sub">Backup rules and archives per server</span>
+        </div>
+        <div class="backups-summary" id="backupsSummary"></div>
+        <div class="backups-layout">
+          <div class="backups-side">
+            <div class="md-card backups-instances-card">
+              <div class="md-card-title">Servers</div>
+              <div id="backupInstanceList"></div>
+              <button class="btn btn-secondary btn-sm" onclick="refreshBackupInstances()">Refresh</button>
+            </div>
+          </div>
+          <div class="backups-main">
+            <div class="md-card">
+              <div class="backups-actions">
+                <span class="md-card-title" style="margin:0">Rules</span>
+                <span style="flex:1"></span>
+                <button class="btn btn-start btn-sm" onclick="backupNow()">Back up now</button>
+                <button class="btn btn-secondary btn-sm" onclick="openRuleModal()">+ New rule</button>
+              </div>
+              <div id="backupRulesList"></div>
+            </div>
+            <div class="md-card" style="padding:0;overflow:hidden;margin-top:12px">
+              <div class="md-card-title" style="padding:16px 20px 0">Archives</div>
+              <table>
+                <thead><tr><th>Created</th><th>Trigger</th><th>Files</th><th>Size</th><th>Status</th><th></th></tr></thead>
+                <tbody id="backupRecordsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="backupRuleModal" class="modal-overlay" style="display:none">
+        <div class="modal">
+          <h2 id="backupRuleModalTitle">Backup Rule</h2>
+          <div class="md-field">
+            <label>Name</label>
+            <input id="bkRuleName" placeholder="e.g. Daily world backup">
+          </div>
+          <div class="md-field">
+            <label>Folders (relative to server dir, one per line)</label>
+            <textarea id="bkRuleFolders" rows="2" placeholder="."></textarea>
+          </div>
+          <div class="md-field">
+            <label>Exclude patterns (glob, one per line)</label>
+            <textarea id="bkRuleExclude" rows="2" placeholder="logs/**&#10;*.pid"></textarea>
+          </div>
+          <div class="md-field">
+            <label>Schedule</label>
+            <select id="bkRuleInterval">
+              <option value="0">Manual only</option>
+              <option value="3600">Hourly</option>
+              <option value="86400">Daily</option>
+              <option value="604800">Weekly</option>
+            </select>
+          </div>
+          <div class="row">
+            <div class="md-field" style="flex:1">
+              <label>Keep last N backups (0 = unlimited)</label>
+              <input id="bkRuleRetentionCount" type="number" min="0" value="10">
+            </div>
+            <div class="md-field" style="flex:1">
+              <label>Keep for N days (0 = unlimited)</label>
+              <input id="bkRuleRetentionDays" type="number" min="0" value="0">
+            </div>
+          </div>
+          <label class="md-check"><input type="checkbox" id="bkRuleOnStop"> Backup when the server stops</label>
+          <label class="md-check"><input type="checkbox" id="bkRuleEnabled" checked> Rule enabled</label>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeModal('backupRuleModal')">Cancel</button>
+            <button class="btn btn-start" onclick="saveRule()">Save</button>
+            <button class="btn btn-stop" id="bkRuleDeleteBtn" onclick="deleteRule()" style="margin-left:auto;display:none">Delete</button>
+          </div>
+        </div>
+      </div>

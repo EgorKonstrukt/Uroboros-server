@@ -1,0 +1,120 @@
+.backups-summary {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.backups-summary .md-card {
+  margin: 0;
+  flex: 1;
+  min-width: 160px;
+  text-align: center;
+}
+
+.backups-summary .backups-sum-val {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.backups-summary .backups-sum-label {
+  font-size: 12px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.backups-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.backups-side {
+  flex: 0 0 280px;
+}
+
+.backups-side .md-card {
+  margin: 0;
+}
+
+.backups-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.backups-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px 8px;
+}
+
+.backup-instance-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font: 14px sans-serif;
+  color: inherit;
+  text-align: left;
+}
+
+.backup-instance-item:hover {
+  background: rgba(108, 99, 255, 0.08);
+}
+
+.backup-instance-item.active {
+  background: rgba(108, 99, 255, 0.15);
+}
+
+.backup-instance-item .backup-inst-name {
+  flex: 1;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.backup-rule:first-of-type {
+  border-top: none;
+}
+
+.backup-rule-name {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.backup-rule-desc {
+  font-size: 12px;
+  color: #888;
+}
+
+.backup-record-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.md-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin: 8px 0;
+  cursor: pointer;
+}

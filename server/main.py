@@ -8,6 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def cmd_run(args):
+    from server.plugins import bootstrap as bootstrap_plugins
+    bootstrap_plugins()
     from server.app import app
     from server.database import init_db, close_db
     from server.config import ServerConfig

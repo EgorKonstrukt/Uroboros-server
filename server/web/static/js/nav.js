@@ -1,5 +1,13 @@
 /* ===================== Navigation: tabs, sidebar, server selection ===================== */
 
+function tabMeta(id) {
+    var tabs = window.UROBOROS_TABS || [];
+    for (var i = 0; i < tabs.length; i++) {
+        if (tabs[i].id === id) return tabs[i];
+    }
+    return null;
+}
+
 function switchTab(name) {
     clearServerPolling();
     document.getElementById('serverDetailView').style.display = 'none';
@@ -9,19 +17,17 @@ function switchTab(name) {
     currentServerId = null;
     document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
     document.querySelectorAll('.nav-item').forEach(function (t) { t.classList.remove('active'); });
-    document.getElementById(name + 'Panel').classList.add('active');
+    var panel = document.getElementById(name + 'Panel');
+    if (panel) panel.classList.add('active');
     var navItem = document.querySelector('.nav-item[data-tab="' + name + '"]');
     if (navItem) navItem.classList.add('active');
-    var titles = { projects: 'Projects', players: 'Players', config: 'Config', java: 'Java', update: 'Update' };
+    var meta = tabMeta(name);
     var titleEl = document.getElementById('pageTitle');
-    if (titleEl) titleEl.textContent = titles[name] || name;
+    if (titleEl) titleEl.textContent = (meta && meta.title) || name;
     var actions = document.getElementById('topActions');
-    actions.innerHTML = '';
-    if (name === 'projects') { loadProjects(); }
-    if (name === 'players') { loadPlayers(); }
-    if (name === 'config') { loadGlobalConfig(); }
-    if (name === 'java') { loadJavaRuntimes(); loadJavaAvailable(); }
-    if (name === 'update') { loadUpdateStatus(); }
+    if (actions) actions.innerHTML = '';
+    if (meta && meta.loader && typeof window[meta.loader] === 'function') window[meta.loader]();
+    Uroboros.emit('tab', { tab: name, config: meta || null });
 }
 
 function clearServerPolling() {
@@ -44,6 +50,7 @@ function selectServer(id) {
     document.getElementById('pageTitle').textContent = 'Server';
     document.getElementById('topActions').innerHTML = '';
     openServerDetail(id);
+    Uroboros.emit('server', { id: id });
 }
 
 function renderServerNav() {

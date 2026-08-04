@@ -4,6 +4,31 @@ var currentServerId = null;
 var expandedProjects = {};
 var serverPollTimer = null;
 
+/* ===================== Event bus ===================== */
+
+window.Uroboros = {
+    _listeners: {},
+    on: function (name, fn) {
+        if (!this._listeners[name]) this._listeners[name] = [];
+        this._listeners[name].push(fn);
+        return this;
+    },
+    off: function (name, fn) {
+        var arr = this._listeners[name];
+        if (!arr) return this;
+        var i = arr.indexOf(fn);
+        if (i >= 0) arr.splice(i, 1);
+        return this;
+    },
+    emit: function (name, data) {
+        var arr = this._listeners[name];
+        if (!arr) return;
+        for (var i = 0; i < arr.length; i++) {
+            try { arr[i](data || {}); } catch (e) {}
+        }
+    }
+};
+
 function getToken() { return sessionStorage.getItem('admin_token'); }
 function setToken(t) { if (t) sessionStorage.setItem('admin_token', t); else sessionStorage.removeItem('admin_token'); }
 

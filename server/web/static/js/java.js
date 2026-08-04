@@ -1,5 +1,10 @@
 /* ===================== Java runtimes ===================== */
 
+function loadJava() {
+    loadJavaRuntimes();
+    loadJavaAvailable();
+}
+
 async function loadJavaRuntimes() {
     try {
         var r = await apiFetch('/admin/java');

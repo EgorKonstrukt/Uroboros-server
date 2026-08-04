@@ -13,6 +13,7 @@ from server.mc.pidfile import (
     is_running as pidfile_is_running,
     stop_process as pidfile_stop_process,
 )
+from server.plugins import bus
 
 
 def _default_stop_timeout() -> float:
@@ -229,6 +230,7 @@ class ServerManager:
                 self._handle_crash()
 
             threading.Thread(target=read_output, daemon=True).start()
+            bus.emit("instance:started", instance_id=self.config.id)
             return True
 
     def _handle_crash(self):
@@ -291,6 +293,7 @@ class ServerManager:
             with self._lock:
                 self._stopping = False
             clear_pid_for(self.config.id)
+            bus.emit("instance:stopped", instance_id=self.config.id)
             return True
 
         try:
@@ -313,6 +316,7 @@ class ServerManager:
                 self._stopping = False
                 self._starting = False
             clear_pid_for(self.config.id)
+        bus.emit("instance:stopped", instance_id=self.config.id)
         return True
 
     def request_stop(self, timeout: float | None = None) -> bool:

@@ -11,6 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from server.auth.routes import router as auth_router, yggdrasil_router
 from server.web.admin import router as admin_router, _migrate_modpacks_from_json
 from server.web import projects_router, launcher_router, news_router
+from server.plugins import attach_to_app
 
 _log = logging.getLogger("uroboros")
 
@@ -51,7 +52,11 @@ async def lifespan(app: FastAPI):
     import threading
     from server.mc.java import scan_java
     threading.Thread(target=scan_java, daemon=True).start()
+    from server.plugins import ensure_bootstrap, startup_all, shutdown_all
+    ensure_bootstrap()
+    await startup_all(app)
     yield
+    await shutdown_all(app)
 
 
 app = FastAPI(title="Uroboros Server", version="2.0.0", lifespan=lifespan,
@@ -59,7 +64,6 @@ app = FastAPI(title="Uroboros Server", version="2.0.0", lifespan=lifespan,
 app.add_middleware(_SecurityHeadersMiddleware)
 
 _admin_static = Path(__file__).parent / "web" / "static"
-app.mount("/admin/static", StaticFiles(directory=str(_admin_static)), name="admin_static")
 
 
 @app.exception_handler(Exception)
@@ -77,6 +81,10 @@ app.include_router(admin_router, prefix="/admin")
 app.include_router(projects_router, prefix="/projects")
 app.include_router(news_router, prefix="/projects")
 app.include_router(launcher_router, prefix="/launcher")
+
+attach_to_app(app)
+
+app.mount("/admin/static", StaticFiles(directory=str(_admin_static)), name="admin_static")
 
 
 @app.get("/")

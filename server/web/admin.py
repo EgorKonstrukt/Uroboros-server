@@ -708,6 +708,8 @@ _GLOBAL_FIELD_META = {
     "projects_dir": {"group": "Storage", "label": "Projects Directory", "description": "Storage location for modpack projects (empty = default)"},
     "java_dir": {"group": "Storage", "label": "Java Directory", "description": "Storage location for managed Java runtimes (empty = default)"},
     "injector_dir": {"group": "Storage", "label": "Injector Directory", "description": "Storage location for authlib-injector JARs (empty = default)"},
+    "plugins_dir": {"group": "Storage", "label": "Plugins Directory", "description": "Storage location for plugins (empty = default)"},
+    "plugins_enabled": {"group": "Storage", "label": "Plugins Enabled", "description": "Master switch for the plugin system"},
     "admin_password": {"group": "Security", "label": "Admin Password", "description": "Password to protect this panel (auto-generated if empty)"},
     "token_expiry_hours": {"group": "Security", "label": "Panel Token Lifetime (hours)", "description": "How long admin panel auth tokens stay valid"},
     "access_token_ttl_hours": {"group": "Security", "label": "Access Token Lifetime (hours)", "description": "How long Minecraft auth access tokens stay valid"},
@@ -2394,19 +2396,85 @@ async def import_progress(project_id: str, modpack_id: str, task_id: str):
 
 # ── Dashboard pages ──
 
-_ADMIN_FRAGMENTS = (
-    "head", "projects", "servers", "players", "config", "java", "update",
-    "modals", "scripts",
-)
+
+def _read_fragment(name: str) -> str:
+    path = _template_dir / "admin" / f"{name}.html"
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _read_tab_fragment(tab) -> str:
+    if tab.fragment_dir:
+        path = Path(tab.fragment_dir) / tab.fragment
+    else:
+        path = _template_dir / "admin" / tab.fragment
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _esc_html(value) -> str:
+    return (str(value or "")).replace("&", "&amp;").replace("<", "&lt;").replace(
+        ">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
+
+
+def _render_nav(tabs) -> str:
+    groups = []
+    for tab in tabs:
+        if tab.in_nav and tab.group not in groups:
+            groups.append(tab.group)
+    html = []
+    for group in groups:
+        html.append(f'<div class="nav-label">{_esc_html(group)}</div>')
+        for tab in tabs:
+            if not tab.in_nav or tab.group != group:
+                continue
+            active = " active" if tab.id == "projects" else ""
+            html.append(
+                f'<button class="nav-item{active}" data-tab="{tab.id}" '
+                f'onclick="switchTab(\'{tab.id}\')">{_esc_html(tab.title)}</button>'
+            )
+    return "\n".join(html)
+
+
+def _render_tabs_config(tabs) -> str:
+    config = [
+        {"id": t.id, "title": t.title, "group": t.group,
+         "loader": t.loader, "icon": t.icon}
+        for t in tabs if t.in_nav
+    ]
+    raw = json.dumps(config, ensure_ascii=False).replace("</", "<\\/")
+    return f'<script>window.UROBOROS_TABS = {raw};</script>'
+
+
+def _render_asset_tags(urls, kind: str) -> str:
+    if not urls:
+        return ""
+    if kind == "css":
+        return "\n".join(f'<link rel="stylesheet" href="{u}">' for u in urls)
+    return "\n".join(f'<script src="{u}"></script>' for u in urls)
 
 
 def _render_admin_page() -> str:
     from server.version import APP_VERSION
-    parts = []
-    for name in _ADMIN_FRAGMENTS:
-        path = _template_dir / "admin" / f"{name}.html"
-        with open(path, "r", encoding="utf-8") as f:
-            parts.append(f.read().replace("__UROBOROS_VERSION__", APP_VERSION))
+    from server.web.registry import get_all_tabs
+    from server.plugins import get_assets
+
+    tabs = get_all_tabs()
+    css_urls, js_urls = get_assets()
+
+    head = _read_fragment("head").replace("__UROBOROS_VERSION__", APP_VERSION)
+    head = head.replace("<!--UROBOROS_NAV-->", _render_nav(tabs))
+    head = head.replace("<!--UROBOROS_TABS_CFG-->", _render_tabs_config(tabs))
+    head = head.replace("<!--UROBOROS_CSS-->", _render_asset_tags(css_urls, "css"))
+
+    parts = [head]
+    for tab in tabs:
+        parts.append(_read_tab_fragment(tab))
+    parts.append(_read_fragment("modals").replace("__UROBOROS_VERSION__", APP_VERSION))
+
+    scripts = _read_fragment("scripts").replace("__UROBOROS_VERSION__", APP_VERSION)
+    scripts = scripts.replace("<!--UROBOROS_SCRIPTS-->", _render_asset_tags(js_urls, "js"))
+    parts.append(scripts)
     return "\n".join(parts)
 
 

@@ -53,6 +53,8 @@ class ServerConfig:
     projects_dir: str = ""
     java_dir: str = ""
     injector_dir: str = ""
+    plugins_dir: str = ""
+    plugins_enabled: bool = True
 
     def save(self):
         SERVER_DIR.mkdir(parents=True, exist_ok=True)
@@ -127,3 +129,7 @@ def get_java_dir() -> Path:
 
 def get_injector_dir() -> Path:
     return _resolve_dir(ServerConfig.load().injector_dir, SERVER_DIR / "injector")
+
+
+def get_plugins_dir() -> Path:
+    return _resolve_dir(ServerConfig.load().plugins_dir, SERVER_DIR / "plugins")

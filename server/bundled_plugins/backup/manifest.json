@@ -1,0 +1,10 @@
+{
+  "id": "backup",
+  "name": "Backups",
+  "version": "1.0.0",
+  "description": "Per-instance backup rules, scheduled/manual/on-stop backups, restore and download manager.",
+  "author": "Uroboros",
+  "homepage": "",
+  "css": ["backups.css"],
+  "js": ["backups.js"]
+}

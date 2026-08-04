@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Uroboros Admin</title>
 <script>(function(){var t='light';try{t=localStorage.getItem('uroboros_theme')||'light';}catch(e){}document.documentElement.classList.toggle('theme-dark',t==='dark');})();</script>
+<!--UROBOROS_TABS_CFG-->
 <link rel="stylesheet" href="/admin/static/css/base.css?v=6">
 <link rel="stylesheet" href="/admin/static/css/layout.css?v=7">
 <link rel="stylesheet" href="/admin/static/css/components.css?v=10">
@@ -13,6 +14,7 @@
 <link rel="stylesheet" href="/admin/static/css/cards.css?v=7">
 <link rel="stylesheet" href="/admin/static/css/filemanager.css?v=2">
 <link rel="stylesheet" href="/admin/static/css/animations.css?v=1">
+<!--UROBOROS_CSS-->
 </head>
 <body>
 <div id="toast"></div>
@@ -27,12 +29,7 @@
       </div>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-label">GENERAL</div>
-      <button class="nav-item active" data-tab="projects" onclick="switchTab('projects')">Projects</button>
-      <button class="nav-item" data-tab="players" onclick="switchTab('players')">Players</button>
-      <button class="nav-item" data-tab="config" onclick="switchTab('config')">Config</button>
-      <button class="nav-item" data-tab="java" onclick="switchTab('java')">Java</button>
-      <button class="nav-item" data-tab="update" onclick="switchTab('update')">Update</button>
+      <!--UROBOROS_NAV-->
       <div class="nav-sep"></div>
       <div class="nav-label">SERVERS</div>
       <div id="sidebarServerList">
