@@ -135,20 +135,23 @@
 }
 
 .bk-tree-node {
-  display: flex;
+  display: grid;
+  grid-template-columns: 18px 1fr;
   align-items: center;
 }
 
 .bk-tree-toggle {
-  flex: 0 0 18px;
+  grid-column: 1;
   width: 18px;
   text-align: center;
   cursor: pointer;
   color: #666;
   user-select: none;
+  line-height: 1;
 }
 
 .bk-tree-label {
+  grid-column: 2;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -163,6 +166,26 @@
   background: rgba(108, 99, 255, 0.08);
 }
 
+.bk-tree-label input[type="checkbox"] {
+  width: 14px !important;
+  height: 14px !important;
+  min-width: 14px;
+  min-height: 14px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  border: none !important;
+  border-radius: 3px;
+  accent-color: #6c63ff;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+
+.bk-tree-label input[type="checkbox"]:focus {
+  outline: 1px solid #6c63ff;
+  box-shadow: none !important;
+}
+
 .bk-tree-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -172,10 +195,14 @@
 .bk-tree-files {
   color: #888;
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .bk-tree-children {
-  margin-left: 14px;
+  grid-column: 1 / -1;
+  margin-left: 9px;
+  padding-left: 7px;
+  border-left: 1px solid rgba(128, 128, 128, 0.18);
   min-width: 0;
 }
 

@@ -6,13 +6,16 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import threading
+import zipfile
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -220,6 +223,50 @@ def _module_findable(name: str) -> bool:
         return False
 
 
+MAX_PLUGIN_ARCHIVE_BYTES = 64 * 1024 * 1024
+
+
+def _safe_extract_one(name: str, read, dst: Path, is_dir: bool):
+    rel = name.replace("\\", "/").lstrip("/")
+    parts = [p for p in rel.split("/") if p not in ("", ".", "__MACOSX")]
+    if not parts:
+        return
+    if any(p == ".." for p in parts):
+        raise ValueError("Unsafe archive entry: " + name)
+    target = dst.joinpath(*parts)
+    if is_dir:
+        target.mkdir(parents=True, exist_ok=True)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(read())
+
+
+def _safe_extract_all(archive: Path, dst: Path):
+    dst.mkdir(parents=True, exist_ok=True)
+    if archive.name.lower().endswith(".zip"):
+        with zipfile.ZipFile(archive) as zf:
+            for member in zf.infolist():
+                _safe_extract_one(member.filename, lambda m=member: zf.read(m), dst, member.is_dir())
+    else:
+        with tarfile.open(archive, "r:*") as tf:
+            for member in tf.getmembers():
+                if member.issym() or member.islnk() or member.isdev():
+                    continue
+                if member.isdir():
+                    _safe_extract_one(member.name, lambda: b"", dst, True)
+                else:
+                    _safe_extract_one(member.name, lambda m=member: tf.extractfile(m).read(), dst, False)
+
+
+def _find_plugin_root(tmp: Path) -> Optional[Path]:
+    if (tmp / MANIFEST_FILE_NAME).is_file() and (tmp / PLUGIN_ENTRY_FILE).is_file():
+        return tmp
+    for child in sorted(tmp.iterdir()):
+        if child.is_dir() and (child / MANIFEST_FILE_NAME).is_file() and (child / PLUGIN_ENTRY_FILE).is_file():
+            return child
+    return None
+
+
 class PluginRegistry:
     def __init__(self):
         self._entries: Dict[str, PluginEntry] = {}
@@ -381,6 +428,72 @@ class PluginRegistry:
         if entry:
             entry.enabled = bool(enabled)
 
+    def install_archive(self, data: bytes, filename: str) -> dict:
+        lname = (filename or "").lower()
+        if not (lname.endswith(".zip") or lname.endswith(".tar.gz") or lname.endswith(".tgz")):
+            raise ValueError("Only .zip or .tar.gz archives are supported")
+        if len(data) > MAX_PLUGIN_ARCHIVE_BYTES:
+            raise ValueError("Archive is too large")
+        tmp = Path(tempfile.mkdtemp(prefix="uroboros_pi_"))
+        try:
+            src = tmp / ("pkg.zip" if lname.endswith(".zip") else "pkg.tar.gz")
+            src.write_bytes(data)
+            _safe_extract_all(src, tmp / "x")
+            root = _find_plugin_root(tmp / "x")
+            if root is None:
+                raise ValueError("Archive must contain manifest.json and plugin.py")
+            manifest = _read_manifest(root / MANIFEST_FILE_NAME)
+            pid = str(manifest.get("id", "")).strip()
+            if not re.match(r"^[a-zA-Z0-9_-]+$", pid):
+                raise ValueError("manifest.json is missing a valid plugin id")
+            if (BUNDLED_PLUGINS_DIR / pid).is_dir():
+                raise ValueError(f"Plugin id {pid!r} conflicts with a bundled plugin")
+            if pid in self._entries or (get_plugins_dir() / pid).exists():
+                raise ValueError(f"Plugin {pid} is already installed")
+            dst = get_plugins_dir() / pid
+            dst.mkdir(parents=True, exist_ok=True)
+            for item in root.iterdir():
+                if item.is_dir():
+                    shutil.copytree(item, dst / item.name, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(item, dst / item.name)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        entry = PluginEntry(pid, dst, _read_manifest(dst / MANIFEST_FILE_NAME))
+        entry.enabled = True
+        self._entries[pid] = entry
+        try:
+            entry.instance, entry.context = self._import_plugin(entry)
+            entry.loaded = True
+            entry.error = ""
+            try:
+                entry.instance.on_install(entry.context)
+            except Exception:
+                _log.exception("[plugins] on_install failed for %s", pid)
+        except Exception as e:
+            _log.exception("Failed to load installed plugin %s", pid)
+            entry.loaded = False
+            entry.error = f"{type(e).__name__}: {e}"
+        return {"id": pid, "loaded": entry.loaded, "error": entry.error, "needs_restart": True}
+
+    def uninstall_plugin(self, plugin_id: str) -> bool:
+        if (BUNDLED_PLUGINS_DIR / plugin_id).is_dir():
+            raise ValueError("Bundled plugins cannot be uninstalled")
+        entry = self._entries.get(plugin_id)
+        if entry is None:
+            raise ValueError("Plugin not found")
+        if entry.loaded and entry.instance and entry.context:
+            try:
+                entry.instance.on_uninstall(entry.context)
+            except Exception:
+                _log.exception("[plugins] on_uninstall failed for %s", plugin_id)
+        state = self._read_global_state()
+        state.pop(plugin_id, None)
+        self._write_global_state(state)
+        self._entries.pop(plugin_id, None)
+        shutil.rmtree(get_plugins_dir() / plugin_id, ignore_errors=True)
+        return True
+
     def get_entry(self, plugin_id: str) -> Optional[PluginEntry]:
         return self._entries.get(plugin_id)
 
@@ -530,4 +643,28 @@ async def disable_plugin(plugin_id: str):
     if registry.get_entry(plugin_id) is None:
         return JSONResponse(content={"error": "Plugin not found"}, status_code=404)
     registry.set_enabled(plugin_id, False)
+    return {"ok": True, "id": plugin_id}
+
+
+@plugins_router.post("/plugins/install")
+async def install_plugin(file: UploadFile = File(...)):
+    registry.ensure_bootstrap()
+    try:
+        data = await file.read()
+    except Exception as e:
+        return JSONResponse(content={"error": f"Failed to read upload: {e}"}, status_code=400)
+    try:
+        result = registry.install_archive(data, file.filename or "")
+    except ValueError as e:
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+    return result
+
+
+@plugins_router.post("/plugins/{plugin_id}/uninstall")
+async def uninstall_plugin(plugin_id: str):
+    registry.ensure_bootstrap()
+    try:
+        registry.uninstall_plugin(plugin_id)
+    except ValueError as e:
+        return JSONResponse(content={"error": str(e)}, status_code=404)
     return {"ok": True, "id": plugin_id}
