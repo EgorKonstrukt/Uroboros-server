@@ -6,6 +6,12 @@ var bkRecords = [];
 var bkCurrent = null;
 var bkEditingRule = null;
 
+var bkTreeCache = {};
+var bkExpanded = { '__root__': true };
+var bkNodeEls = {};
+var bkSelFolders = ['.'];
+var bkPollTimer = null;
+
 function bkTriggerLabel(t) {
     if (t === 'schedule') return 'Schedule';
     if (t === 'on_stop') return 'On stop';
@@ -31,9 +37,12 @@ function bkIntervalLabel(sec) {
 async function loadBackups() {
     if (typeof toast !== 'function') return;
     try {
-        var r = await apiFetch('/admin/backups/instances');
-        if (!r) return;
-        bkInstances = await r.json();
+        var results = await Promise.all([
+            apiFetch('/admin/backups/instances'),
+            apiFetch('/admin/backups/stats')
+        ]);
+        if (!results[0]) return;
+        bkInstances = await results[0].json();
         renderBackupInstances();
         if (bkInstances.length) {
             if (!bkCurrent || !bkInstances.some(function (i) { return i.id === bkCurrent; })) {
@@ -46,8 +55,7 @@ async function loadBackups() {
             document.getElementById('backupRulesList').innerHTML = '<div class="status-text" style="padding:16px 20px">No servers configured</div>';
             document.getElementById('backupRecordsBody').innerHTML = '';
         }
-        var s = await apiFetch('/admin/backups/stats');
-        if (s) renderBackupSummary(await s.json());
+        if (results[1]) renderBackupSummary(await results[1].json());
     } catch (e) {
         toast('Failed: ' + e.message, 'error');
     }
@@ -104,11 +112,13 @@ function selectBackupInstance(id) {
 
 async function loadBackupData(instanceId) {
     try {
-        var r1 = await apiFetch('/admin/backups/rules?instance_id=' + encodeURIComponent(instanceId));
-        var r2 = await apiFetch('/admin/backups?instance_id=' + encodeURIComponent(instanceId));
-        if (!r1 || !r2) return;
-        bkRules = await r1.json();
-        bkRecords = await r2.json();
+        var results = await Promise.all([
+            apiFetch('/admin/backups/rules?instance_id=' + encodeURIComponent(instanceId)),
+            apiFetch('/admin/backups?instance_id=' + encodeURIComponent(instanceId))
+        ]);
+        if (!results[0] || !results[1]) return;
+        bkRules = await results[0].json();
+        bkRecords = await results[1].json();
         renderRules();
         renderRecords();
     } catch (e) {
@@ -133,6 +143,7 @@ function renderRules() {
         if (r.retention_days > 0) desc += ' \u00b7 ' + r.retention_days + 'd';
         var folders = (r.folders || []).join(', ');
         if (folders && folders !== '.') desc += ' \u00b7 ' + esc(folders);
+        if (r.destination_dir) desc += ' \u00b7 \u2192 ' + esc(r.destination_dir);
         div.innerHTML =
             '<div class="backup-rule-name">' + esc(r.name || ('Rule #' + r.id)) + '<div class="backup-rule-desc">' + desc + '</div></div>' +
             (r.enabled
@@ -156,7 +167,7 @@ function renderRecords() {
         var tr = document.createElement('tr');
         var status;
         if (rec.status === 'ok') status = '<span class="badge badge-running">OK</span>';
-        else if (rec.status === 'running') status = '<span class="badge badge-stopping">RUNNING</span>';
+        else if (rec.status === 'running') status = bkRunningHtml(rec);
         else status = '<span class="badge badge-stopped">FAILED</span>';
         var err = rec.error ? '<div class="status-sub" style="color:#c62828">' + esc(rec.error) + '</div>' : '';
         var actions = '';
@@ -179,6 +190,42 @@ function renderRecords() {
     }
 }
 
+function bkRunningHtml(rec) {
+    var pct = rec.progress_percent || 0;
+    var sub = (rec.phase === 'scan' ? 'Scanning\u2026' : pct + '%');
+    if (rec.done_files != null && rec.total_files != null) sub += ' \u00b7 ' + rec.done_files + '/' + rec.total_files + ' files';
+    return '<span class="badge badge-stopping">RUNNING</span>' +
+        '<div class="bk-progress" id="bk-progress-' + rec.id + '">' +
+        '<div class="bk-progress-fill" style="width:' + pct + '%"></div>' +
+        '<div class="bk-progress-sub">' + sub + '</div></div>';
+}
+
+function pollProgress(recordId) {
+    if (bkPollTimer) clearInterval(bkPollTimer);
+    bkPollTimer = setInterval(function () {
+        apiFetch('/admin/backups/progress/' + recordId).then(function (r) {
+            if (!r) return;
+            r.json().then(function (p) {
+                if (p.running) {
+                    var wrap = document.getElementById('bk-progress-' + recordId);
+                    if (wrap) {
+                        var pct = p.percent || 0;
+                        wrap.querySelector('.bk-progress-fill').style.width = pct + '%';
+                        var sub = (p.phase === 'scan' ? 'Scanning\u2026' : pct + '%');
+                        if (p.done_files != null && p.total_files != null) sub += ' \u00b7 ' + p.done_files + '/' + p.total_files + ' files';
+                        wrap.querySelector('.bk-progress-sub').textContent = sub;
+                    }
+                } else {
+                    clearInterval(bkPollTimer);
+                    bkPollTimer = null;
+                    if (bkCurrent) loadBackupData(bkCurrent);
+                    refreshBackupInstances();
+                }
+            });
+        }).catch(function () {});
+    }, 1000);
+}
+
 async function toggleRule(id, enabled) {
     try {
         var r = await apiFetch('/admin/backups/rules/' + id, {
@@ -197,23 +244,28 @@ async function runRule(id) {
         var r = await apiFetch('/admin/backups/rules/' + id + '/run', { method: 'POST' });
         if (!r) return;
         if (!r.ok) { toast('Failed to start backup', 'error'); return; }
+        var data = await r.json().catch(function () { return {}; });
         toast('Backup started', 'info');
-        setTimeout(function () { if (bkCurrent) loadBackupData(bkCurrent); }, 2500);
+        if (data.record_id) pollProgress(data.record_id);
+        if (bkCurrent) loadBackupData(bkCurrent);
     } catch (e) { toast('Failed: ' + e.message, 'error'); }
 }
 
 async function backupNow() {
     if (!bkCurrent) { toast('Select a server first', 'error'); return; }
     try {
+        var dest = document.getElementById('bkRuleDest') ? document.getElementById('bkRuleDest').value.trim() : '';
         var r = await apiFetch('/admin/backups/instances/' + encodeURIComponent(bkCurrent) + '/backup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ folders: ['.'] })
+            body: JSON.stringify({ folders: ['.'], destination_dir: dest })
         });
         if (!r) return;
         if (!r.ok) { toast('Failed to start backup', 'error'); return; }
+        var data = await r.json().catch(function () { return {}; });
         toast('Backup started', 'info');
-        setTimeout(function () { if (bkCurrent) loadBackupData(bkCurrent); }, 2500);
+        if (data.record_id) pollProgress(data.record_id);
+        if (bkCurrent) loadBackupData(bkCurrent);
         refreshBackupInstances();
     } catch (e) { toast('Failed: ' + e.message, 'error'); }
 }
@@ -223,13 +275,15 @@ function openRuleModal(id) {
     document.getElementById('backupRuleModalTitle').textContent = 'New Backup Rule';
     document.getElementById('bkRuleDeleteBtn').style.display = 'none';
     document.getElementById('bkRuleName').value = '';
-    document.getElementById('bkRuleFolders').value = '.';
     document.getElementById('bkRuleExclude').value = '';
     document.getElementById('bkRuleInterval').value = '0';
     document.getElementById('bkRuleRetentionCount').value = '10';
     document.getElementById('bkRuleRetentionDays').value = '0';
     document.getElementById('bkRuleOnStop').checked = false;
     document.getElementById('bkRuleEnabled').checked = true;
+    document.getElementById('bkRuleDest').value = '';
+    document.getElementById('bkRuleAddPath').value = '';
+    bkSelFolders = ['.'];
     if (id) {
         for (var i = 0; i < bkRules.length; i++) {
             if (bkRules[i].id === id) {
@@ -241,16 +295,174 @@ function openRuleModal(id) {
             document.getElementById('backupRuleModalTitle').textContent = 'Edit Backup Rule';
             document.getElementById('bkRuleDeleteBtn').style.display = 'inline-block';
             document.getElementById('bkRuleName').value = bkEditingRule.name || '';
-            document.getElementById('bkRuleFolders').value = (bkEditingRule.folders || []).join('\n') || '.';
             document.getElementById('bkRuleExclude').value = (bkEditingRule.exclude || []).join('\n');
             document.getElementById('bkRuleInterval').value = String(bkEditingRule.interval_seconds || 0);
             document.getElementById('bkRuleRetentionCount').value = String(bkEditingRule.retention_count || 0);
             document.getElementById('bkRuleRetentionDays').value = String(bkEditingRule.retention_days || 0);
             document.getElementById('bkRuleOnStop').checked = !!bkEditingRule.backup_on_stop;
             document.getElementById('bkRuleEnabled').checked = bkEditingRule.enabled !== false;
+            document.getElementById('bkRuleDest').value = bkEditingRule.destination_dir || '';
+            bkSelFolders = (bkEditingRule.folders && bkEditingRule.folders.length) ? bkEditingRule.folders.slice() : ['.'];
         }
     }
+    renderSelFolders();
+    renderTree();
     openModal('backupRuleModal');
+}
+
+/* ---- folder tree ---- */
+
+function bkRootLabel() {
+    for (var i = 0; i < bkInstances.length; i++) {
+        if (bkInstances[i].id === bkCurrent) {
+            var d = bkInstances[i].server_dir || '';
+            d = d.replace(/[\\/]+$/, '');
+            var parts = d.split(/[\\/]/);
+            var name = parts[parts.length - 1];
+            if (name) return name;
+        }
+    }
+    return 'server';
+}
+
+function renderTree() {
+    var box = document.getElementById('bkRuleTree');
+    box.innerHTML = '';
+    bkTreeCache = {};
+    bkNodeEls = {};
+    if (!bkExpanded['__root__']) bkExpanded['__root__'] = true;
+    box.appendChild(treeNodeEl('', bkRootLabel()));
+    renderTreeChildren('', box.firstChild.querySelector('.bk-tree-children'));
+}
+
+function treeNodeEl(path, name) {
+    var node = document.createElement('div');
+    node.className = 'bk-tree-node';
+    var expanded = !!bkExpanded[path === '' ? '__root__' : path];
+    var toggle = document.createElement('span');
+    toggle.className = 'bk-tree-toggle' + (expanded ? ' open' : '');
+    toggle.textContent = expanded ? '\u25be' : '\u25b8';
+    toggle.onclick = function () { bkToggleDir(path); };
+    var label = document.createElement('label');
+    label.className = 'bk-tree-label';
+    label.dataset.path = path;
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = bkSelFolders.indexOf(path) >= 0;
+    cb.onchange = function () { bkToggleSel(path, cb.checked); };
+    var span = document.createElement('span');
+    span.className = 'bk-tree-name';
+    span.textContent = name;
+    label.appendChild(cb);
+    label.appendChild(span);
+    var children = document.createElement('div');
+    children.className = 'bk-tree-children';
+    node.appendChild(toggle);
+    node.appendChild(label);
+    node.appendChild(children);
+    bkNodeEls[path === '' ? '__root__' : path] = { toggle: toggle, children: children };
+    return node;
+}
+
+async function renderTreeChildren(path, container) {
+    var key = path === '' ? '__root__' : path;
+    var data = bkTreeCache[key];
+    if (!data) {
+        container.innerHTML = '<div class="bk-tree-loading">Loading\u2026</div>';
+        try {
+            var r = await apiFetch('/admin/backups/instances/' + encodeURIComponent(bkCurrent) +
+                '/tree?path=' + encodeURIComponent(path));
+            if (!r) { container.innerHTML = ''; return; }
+            data = await r.json();
+            bkTreeCache[key] = data;
+        } catch (e) {
+            container.innerHTML = '<div class="bk-tree-loading">Failed to load</div>';
+            return;
+        }
+    }
+    container.innerHTML = '';
+    if (!data.dirs || !data.dirs.length) {
+        container.innerHTML = '<div class="bk-tree-loading">(empty)</div>';
+        return;
+    }
+    for (var i = 0; i < data.dirs.length; i++) {
+        var d = data.dirs[i];
+        container.appendChild(treeNodeEl(d.path, d.name));
+    }
+}
+
+async function bkToggleDir(path) {
+    var rec = bkNodeEls[path === '' ? '__root__' : path];
+    if (!rec) return;
+    var expanded = !bkExpanded[path === '' ? '__root__' : path];
+    bkExpanded[path === '' ? '__root__' : path] = expanded;
+    rec.toggle.className = 'bk-tree-toggle' + (expanded ? ' open' : '');
+    rec.toggle.textContent = expanded ? '\u25be' : '\u25b8';
+    if (expanded) {
+        await renderTreeChildren(path, rec.children);
+    } else {
+        rec.children.innerHTML = '';
+    }
+}
+
+function bkToggleSel(path, checked) {
+    if (path === '') {
+        bkSelFolders = checked ? ['.'] : [];
+    } else if (checked) {
+        bkSelFolders = bkSelFolders.filter(function (p) { return p !== '.'; });
+        if (bkSelFolders.indexOf(path) < 0) bkSelFolders.push(path);
+    } else {
+        bkSelFolders = bkSelFolders.filter(function (p) { return p !== path; });
+    }
+    renderSelFolders();
+    syncTreeCheckboxes();
+}
+
+function syncTreeCheckboxes() {
+    var box = document.getElementById('bkRuleTree');
+    var labels = box.querySelectorAll('.bk-tree-label');
+    for (var i = 0; i < labels.length; i++) {
+        var p = labels[i].dataset.path;
+        var cb = labels[i].querySelector('input[type=checkbox]');
+        cb.checked = bkSelFolders.indexOf(p) >= 0;
+    }
+}
+
+function bkAddPath() {
+    var input = document.getElementById('bkRuleAddPath');
+    var v = (input.value || '').trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (!v) return;
+    if (v === '.') {
+        bkSelFolders = ['.'];
+    } else {
+        bkSelFolders = bkSelFolders.filter(function (p) { return p !== '.'; });
+        if (bkSelFolders.indexOf(v) < 0) bkSelFolders.push(v);
+    }
+    input.value = '';
+    renderSelFolders();
+    syncTreeCheckboxes();
+}
+
+function renderSelFolders() {
+    var box = document.getElementById('bkRuleSelected');
+    box.innerHTML = '';
+    if (!bkSelFolders.length) {
+        box.innerHTML = '<div class="bk-hint">Nothing selected \u2014 the whole server folder will be backed up.</div>';
+        return;
+    }
+    for (var i = 0; i < bkSelFolders.length; i++) {
+        (function (p) {
+            var chip = document.createElement('span');
+            chip.className = 'bk-chip';
+            chip.textContent = p === '.' ? 'entire server (.)' : p;
+            var x = document.createElement('button');
+            x.className = 'bk-chip-x';
+            x.textContent = '\u00d7';
+            x.onclick = function () { bkToggleSel(p, false); };
+            chip.appendChild(x);
+            box.appendChild(chip);
+        })(bkSelFolders[i]);
+    }
 }
 
 function splitLines(value) {
@@ -262,14 +474,14 @@ async function saveRule() {
     var payload = {
         name: document.getElementById('bkRuleName').value.trim(),
         enabled: document.getElementById('bkRuleEnabled').checked,
-        folders: splitLines(document.getElementById('bkRuleFolders').value),
+        folders: bkSelFolders.length ? bkSelFolders.slice() : ['.'],
         exclude: splitLines(document.getElementById('bkRuleExclude').value),
         interval_seconds: Number(document.getElementById('bkRuleInterval').value) || 0,
         retention_count: Number(document.getElementById('bkRuleRetentionCount').value) || 0,
         retention_days: Number(document.getElementById('bkRuleRetentionDays').value) || 0,
-        backup_on_stop: document.getElementById('bkRuleOnStop').checked
+        backup_on_stop: document.getElementById('bkRuleOnStop').checked,
+        destination_dir: document.getElementById('bkRuleDest').value.trim()
     };
-    if (!payload.folders.length) payload.folders = ['.'];
     try {
         var r;
         if (bkEditingRule) {
@@ -324,7 +536,7 @@ async function restoreBackup(id) {
             toast(d.error || 'Restore failed', 'error');
             return;
         }
-        toast('Restore complete (' + d.restored + ' files)', 'info');
+        toast('Restore complete', 'info');
     } catch (e) { toast('Failed: ' + e.message, 'error'); }
 }
 

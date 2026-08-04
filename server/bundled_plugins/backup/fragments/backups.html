@@ -41,8 +41,18 @@
             <input id="bkRuleName" placeholder="e.g. Daily world backup">
           </div>
           <div class="md-field">
-            <label>Folders (relative to server dir, one per line)</label>
-            <textarea id="bkRuleFolders" rows="2" placeholder="."></textarea>
+            <label>Folders (tree view)</label>
+            <div class="bk-tree" id="bkRuleTree"></div>
+            <div class="bk-sel-folders" id="bkRuleSelected"></div>
+            <div class="bk-add-path">
+              <input id="bkRuleAddPath" placeholder="Add path e.g. world/region">
+              <button class="btn btn-secondary btn-sm" onclick="bkAddPath()">Add</button>
+            </div>
+          </div>
+          <div class="md-field">
+            <label>Save to folder (empty = default backups dir)</label>
+            <input id="bkRuleDest" placeholder="e.g. D:\Backups or \\nas\share\mc">
+            <div class="bk-hint">Supports network shares (NFS/SMB), other drives and any writable folder.</div>
           </div>
           <div class="md-field">
             <label>Exclude patterns (glob, one per line)</label>

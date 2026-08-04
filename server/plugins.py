@@ -419,15 +419,17 @@ class PluginRegistry:
             if not entry.loaded or not entry.instance:
                 continue
             base = f"/admin/static/plugins/{pid}"
+            ver = str(entry.manifest.get("version", "")).strip()
+            qs = f"?v={ver}" if ver else ""
             for rel in entry.manifest.get("css", []) or []:
-                css.append(f"{base}/{rel.lstrip('/')}")
+                css.append(f"{base}/{rel.lstrip('/')}{qs}")
             for rel in entry.manifest.get("js", []) or []:
-                js.append(f"{base}/{rel.lstrip('/')}")
+                js.append(f"{base}/{rel.lstrip('/')}{qs}")
             for tab in entry.instance._tabs:
                 for rel in tab.css:
-                    css.append(f"{base}/{rel.lstrip('/')}")
+                    css.append(f"{base}/{rel.lstrip('/')}{qs}")
                 for rel in tab.scripts:
-                    js.append(f"{base}/{rel.lstrip('/')}")
+                    js.append(f"{base}/{rel.lstrip('/')}{qs}")
         return css, js
 
     def attach_to_app(self, app):

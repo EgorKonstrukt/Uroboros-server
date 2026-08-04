@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import zipfile
 from collections import deque
 from datetime import datetime
@@ -40,6 +41,7 @@ class BackupRuleModel(Base):
     retention_count: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     retention_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     backup_on_stop: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    destination_dir: Mapped[str] = mapped_column(String(1024), default="", nullable=False)
     last_run_at: Mapped[datetime] = mapped_column(DateTime, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -58,8 +60,49 @@ class BackupRecordModel(Base):
     file_path: Mapped[str] = mapped_column(String(1024), default="", nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     file_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    destination_dir: Mapped[str] = mapped_column(String(1024), default="", nullable=False)
+    progress_percent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    processed_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     finished_at: Mapped[datetime] = mapped_column(DateTime, nullable=True, default=None)
+
+
+_PROGRESS: dict = {}
+_PROGRESS_LOCK = threading.Lock()
+
+
+def _set_progress(record_id: int, data: dict):
+    with _PROGRESS_LOCK:
+        _PROGRESS[record_id] = dict(data)
+
+
+def _get_progress(record_id: int) -> Optional[dict]:
+    with _PROGRESS_LOCK:
+        data = _PROGRESS.get(record_id)
+        return dict(data) if data else None
+
+
+def _clear_progress(record_id: int):
+    with _PROGRESS_LOCK:
+        _PROGRESS.pop(record_id, None)
+
+
+def _update_progress(record_id: int, done_files: int, done_bytes: int):
+    with _PROGRESS_LOCK:
+        data = _PROGRESS.get(record_id)
+        if data is None:
+            return
+        data["done_files"] = done_files
+        data["done_bytes"] = done_bytes
+        total_b = data.get("total_bytes") or 0
+        total_f = data.get("total_files") or 0
+        if total_b > 0:
+            data["percent"] = max(0, min(100, int(done_bytes * 100 / total_b)))
+        elif total_f > 0:
+            data["percent"] = max(0, min(100, int(done_files * 100 / total_f)))
+        else:
+            data["percent"] = 0
 
 
 def _is_within(child: Path, parent: Path) -> bool:
@@ -70,10 +113,23 @@ def _is_within(child: Path, parent: Path) -> bool:
         return False
 
 
+def _in_storage(path, destination_dir: str, backup_dir: Path) -> bool:
+    path = Path(path)
+    if _is_within(path, backup_dir):
+        return True
+    dest = (destination_dir or "").strip()
+    if dest:
+        try:
+            return _is_within(path, Path(dest))
+        except Exception:
+            return False
+    return False
+
+
 class BackupPlugin(Plugin):
     id = "backup"
     name = "Backups"
-    version = "1.0.0"
+    version = "1.1.0"
 
     def __init__(self):
         super().__init__()
@@ -100,12 +156,39 @@ class BackupPlugin(Plugin):
     # ── lifecycle ──
 
     async def on_startup(self, ctx):
+        await self._migrate_tables()
         cfg = ctx.config()
         root = (cfg.get("backup_dir") or "").strip()
         self._backup_dir = Path(root) if root else (SERVER_DIR / "backups")
         self._backup_dir.mkdir(parents=True, exist_ok=True)
         self._scheduler_task = asyncio.create_task(self._scheduler_loop())
         ctx.log("info", f"started, backup dir: {self._backup_dir}")
+
+    async def _migrate_tables(self):
+        from sqlalchemy import text
+
+        schema = {
+            "backup_rules": {"destination_dir": "VARCHAR(1024) NOT NULL DEFAULT ''"},
+            "backup_records": {
+                "destination_dir": "VARCHAR(1024) NOT NULL DEFAULT ''",
+                "progress_percent": "INTEGER NOT NULL DEFAULT 0",
+                "total_bytes": "INTEGER NOT NULL DEFAULT 0",
+                "processed_bytes": "INTEGER NOT NULL DEFAULT 0",
+            },
+        }
+        try:
+            async with self.ctx.get_session() as session:
+                for table, cols in schema.items():
+                    existing = {row[0] for row in
+                                (await session.execute(text(f"PRAGMA table_info({table})"))).fetchall()}
+                    for col, ddl in cols.items():
+                        if col not in existing:
+                            await session.execute(
+                                text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+                            )
+                await session.commit()
+        except Exception:
+            _log.exception("[backup] schema migration failed")
 
     async def on_shutdown(self, ctx):
         if self._scheduler_task:
@@ -173,13 +256,14 @@ class BackupPlugin(Plugin):
 
     # ── backup engine ──
 
-    def _rule_filename(self, instance_id: str, trigger: str) -> Path:
+    def _out_path(self, instance_id: str, trigger: str, destination_dir: str = "") -> Path:
+        base = Path(destination_dir.strip()) if (destination_dir or "").strip() else self._backup_dir
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        inst_dir = self._backup_dir / instance_id
+        inst_dir = base / instance_id
         inst_dir.mkdir(parents=True, exist_ok=True)
         return inst_dir / f"{instance_id}__{trigger}__{ts}.zip"
 
-    def _build_zip_blocking(self, server_dir, folders, excludes, out_path) -> tuple:
+    def _build_zip_blocking(self, server_dir, folders, excludes, out_path, record_id=None) -> tuple:
         server_dir = Path(server_dir).resolve()
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -206,7 +290,13 @@ class BackupPlugin(Plugin):
         def under_backup(path: Path) -> bool:
             return _is_within(path, self._backup_dir)
 
+        if record_id:
+            _set_progress(record_id, {
+                "phase": "scan", "percent": 0, "total_files": 0,
+                "done_files": 0, "total_bytes": 0, "done_bytes": 0,
+            })
         entries = []
+        total_bytes = 0
         for dirpath, dirnames, filenames in os.walk(server_dir):
             dir_p = Path(dirpath)
             dirnames[:] = [d for d in dirnames if not under_backup(dir_p / d)]
@@ -217,27 +307,59 @@ class BackupPlugin(Plugin):
                 rel = full.relative_to(server_dir).as_posix()
                 if not included(rel) or excluded(rel):
                     continue
-                entries.append((full, rel))
+                try:
+                    size = full.stat().st_size
+                except OSError:
+                    size = 0
+                total_bytes += size
+                entries.append((full, rel, size))
+
+        if record_id:
+            _set_progress(record_id, {
+                "phase": "zip", "percent": 0, "total_files": len(entries),
+                "done_files": 0, "total_bytes": total_bytes, "done_bytes": 0,
+            })
 
         manifest = {
             "uroboros": "backup",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "instance_id": None,
             "server_dir": str(server_dir),
             "created_at": datetime.now().isoformat(),
             "file_count": len(entries),
         }
-        with zipfile.ZipFile(str(out_path), "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-            zf.writestr("uroboros-backup.json", json.dumps(manifest, indent=2, ensure_ascii=False))
-            for full, rel in entries:
-                zf.write(str(full), arcname=rel)
+        try:
+            with zipfile.ZipFile(str(out_path), "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+                zf.writestr("uroboros-backup.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+                done_bytes = 0
+                for idx, (full, rel, size) in enumerate(entries):
+                    zf.write(str(full), arcname=rel)
+                    done_bytes += size
+                    if record_id and (idx % 4 == 0 or idx == len(entries) - 1):
+                        _update_progress(record_id, idx + 1, done_bytes)
+        finally:
+            if record_id:
+                _clear_progress(record_id)
         return str(out_path), len(entries), out_path.stat().st_size
 
-    async def _build_zip(self, server_dir, folders, excludes, out_path) -> tuple:
-        return await asyncio.to_thread(self._build_zip_blocking, server_dir, folders, excludes, out_path)
+    async def _build_zip(self, server_dir, folders, excludes, out_path, record_id=None) -> tuple:
+        return await asyncio.to_thread(
+            self._build_zip_blocking, server_dir, folders, excludes, out_path, record_id
+        )
 
     async def _resolve_instance(self, instance_id: str):
         return await get_instance(instance_id)
+
+    async def _finish_record(self, record_id, status, **kw):
+        async with self.ctx.get_session() as session:
+            rec = await session.get(BackupRecordModel, record_id)
+            if rec is None:
+                return
+            rec.status = status
+            rec.finished_at = datetime.now()
+            for key, value in kw.items():
+                setattr(rec, key, value)
+            await session.commit()
 
     async def _run_rule(self, rule_id: int, trigger: str = "manual") -> Optional[int]:
         ctx = self.ctx
@@ -254,6 +376,7 @@ class BackupPlugin(Plugin):
                 rule_id=rule_id,
                 trigger=trigger,
                 status="running",
+                destination_dir=rule.destination_dir or "",
             )
             session.add(record)
             await session.commit()
@@ -262,41 +385,42 @@ class BackupPlugin(Plugin):
             server_path = Path(server_dir)
             if not server_path.is_dir():
                 raise FileNotFoundError(f"Server directory not found: {server_dir}")
-            out_path = self._rule_filename(rule.instance_id, trigger)
+            out_path = self._out_path(rule.instance_id, trigger, rule.destination_dir or "")
             zip_path, file_count, size = await self._build_zip(
-                server_path, rule.folders, rule.exclude, out_path
+                server_path, rule.folders, rule.exclude, out_path, record_id
             )
+            await self._finish_record(record_id, "ok",
+                                      file_path=zip_path,
+                                      file_name=Path(zip_path).name,
+                                      size_bytes=size,
+                                      file_count=file_count,
+                                      progress_percent=100,
+                                      total_bytes=size,
+                                      processed_bytes=size)
             async with ctx.get_session() as session:
-                rec = await session.get(BackupRecordModel, record_id)
-                rule = await session.get(BackupRuleModel, rule_id)
-                rec.status = "ok"
-                rec.file_path = zip_path
-                rec.file_name = Path(zip_path).name
-                rec.size_bytes = size
-                rec.file_count = file_count
-                rec.finished_at = datetime.now()
-                if rule is not None:
-                    rule.last_run_at = datetime.now()
-                await session.commit()
+                r = await session.get(BackupRuleModel, rule_id)
+                if r is not None:
+                    r.last_run_at = datetime.now()
+                    await session.commit()
             await self._apply_retention(rule_id, rule.instance_id)
             return record_id
         except Exception as e:
             _log.exception("[backup] rule %s failed", rule_id)
-            async with ctx.get_session() as session:
-                rec = await session.get(BackupRecordModel, record_id)
-                rec.status = "failed"
-                rec.error = str(e)[:2000]
-                rec.finished_at = datetime.now()
-                await session.commit()
+            await self._finish_record(record_id, "failed", error=str(e)[:2000])
             return None
 
-    async def _run_adhoc(self, instance_id: str, folders, exclude, trigger: str = "manual") -> Optional[int]:
-        async with self.ctx.get_session() as session:
+    async def _run_adhoc(self, instance_id: str, folders, exclude, trigger: str = "manual",
+                         destination_dir: str = "") -> Optional[int]:
+        ctx = self.ctx
+        async with ctx.get_session() as session:
             inst = await get_instance(instance_id)
             if inst is None:
                 return None
             server_dir = inst.server_dir or inst.id
-            record = BackupRecordModel(instance_id=instance_id, trigger=trigger, status="running")
+            record = BackupRecordModel(
+                instance_id=instance_id, trigger=trigger, status="running",
+                destination_dir=(destination_dir or "").strip(),
+            )
             session.add(record)
             await session.commit()
             record_id = record.id
@@ -304,26 +428,20 @@ class BackupPlugin(Plugin):
             server_path = Path(server_dir)
             if not server_path.is_dir():
                 raise FileNotFoundError(f"Server directory not found: {server_dir}")
-            out_path = self._rule_filename(instance_id, trigger)
-            zip_path, file_count, size = await self._build_zip(server_path, folders, exclude, out_path)
-            async with self.ctx.get_session() as session:
-                rec = await session.get(BackupRecordModel, record_id)
-                rec.status = "ok"
-                rec.file_path = zip_path
-                rec.file_name = Path(zip_path).name
-                rec.size_bytes = size
-                rec.file_count = file_count
-                rec.finished_at = datetime.now()
-                await session.commit()
+            out_path = self._out_path(instance_id, trigger, (destination_dir or "").strip())
+            zip_path, file_count, size = await self._build_zip(server_path, folders, exclude, out_path, record_id)
+            await self._finish_record(record_id, "ok",
+                                      file_path=zip_path,
+                                      file_name=Path(zip_path).name,
+                                      size_bytes=size,
+                                      file_count=file_count,
+                                      progress_percent=100,
+                                      total_bytes=size,
+                                      processed_bytes=size)
             return record_id
         except Exception as e:
             _log.exception("[backup] ad-hoc backup failed for %s", instance_id)
-            async with self.ctx.get_session() as session:
-                rec = await session.get(BackupRecordModel, record_id)
-                rec.status = "failed"
-                rec.error = str(e)[:2000]
-                rec.finished_at = datetime.now()
-                await session.commit()
+            await self._finish_record(record_id, "failed", error=str(e)[:2000])
             return None
 
     async def _apply_retention(self, rule_id: int, instance_id: str):
@@ -353,7 +471,7 @@ class BackupPlugin(Plugin):
             for rec in doomed:
                 try:
                     path = Path(rec.file_path)
-                    if _is_within(path, self._backup_dir) and path.is_file():
+                    if _in_storage(path, rec.destination_dir, self._backup_dir) and path.is_file():
                         path.unlink(missing_ok=True)
                 except Exception:
                     pass
@@ -385,7 +503,7 @@ def _plugin():
 
 
 def _record_to_dict(rec) -> dict:
-    return {
+    d = {
         "id": rec.id,
         "instance_id": rec.instance_id,
         "rule_id": rec.rule_id,
@@ -395,9 +513,23 @@ def _record_to_dict(rec) -> dict:
         "file_name": rec.file_name,
         "size_bytes": rec.size_bytes,
         "file_count": rec.file_count,
+        "destination_dir": rec.destination_dir or "",
+        "progress_percent": rec.progress_percent or 0,
+        "total_bytes": rec.total_bytes or 0,
+        "processed_bytes": rec.processed_bytes or 0,
         "created_at": rec.created_at.isoformat() if rec.created_at else None,
         "finished_at": rec.finished_at.isoformat() if rec.finished_at else None,
     }
+    if rec.status == "running":
+        live = _get_progress(rec.id)
+        if live:
+            d["progress_percent"] = live.get("percent", d["progress_percent"])
+            d["total_bytes"] = live.get("total_bytes", d["total_bytes"])
+            d["processed_bytes"] = live.get("done_bytes", d["processed_bytes"])
+            d["done_files"] = live.get("done_files", 0)
+            d["total_files"] = live.get("total_files", 0)
+            d["phase"] = live.get("phase", "")
+    return d
 
 
 def _rule_to_dict(rule) -> dict:
@@ -412,6 +544,7 @@ def _rule_to_dict(rule) -> dict:
         "retention_count": rule.retention_count,
         "retention_days": rule.retention_days,
         "backup_on_stop": rule.backup_on_stop,
+        "destination_dir": rule.destination_dir or "",
         "last_run_at": rule.last_run_at.isoformat() if rule.last_run_at else None,
     }
 
@@ -425,30 +558,134 @@ async def list_backup_instances():
     if plugin is None:
         return JSONResponse(content={"error": "Plugin not loaded"}, status_code=500)
     instances = await load_instances()
-    result = []
+    ids = [inst.id for inst in instances]
+    rule_map = {}
+    record_map = {}
     async with plugin.ctx.get_session() as session:
-        for inst in instances:
-            rules = (await session.execute(
-                select(BackupRuleModel).where(BackupRuleModel.instance_id == inst.id)
-            )).scalars().all()
-            records = (await session.execute(
-                select(BackupRecordModel).where(BackupRecordModel.instance_id == inst.id)
-            )).scalars().all()
-            ok_records = [r for r in records if r.status == "ok"]
-            last = None
-            if ok_records:
-                last = max(ok_records, key=lambda r: r.created_at)
-            result.append({
-                "id": inst.id,
-                "name": inst.name or inst.id,
-                "server_dir": inst.server_dir or inst.id,
-                "running": is_running(inst.id),
-                "rules": len(rules),
-                "backups": len(ok_records),
-                "total_size": sum(r.size_bytes for r in ok_records),
-                "last_backup_at": last.created_at.isoformat() if last else None,
-            })
+        if ids:
+            for row in (await session.execute(
+                select(BackupRuleModel.instance_id, func.count(BackupRuleModel.id))
+                .where(BackupRuleModel.instance_id.in_(ids))
+                .group_by(BackupRuleModel.instance_id)
+            )).all():
+                rule_map[row[0]] = row[1]
+            for row in (await session.execute(
+                select(
+                    BackupRecordModel.instance_id,
+                    func.count(BackupRecordModel.id),
+                    func.sum(BackupRecordModel.size_bytes),
+                    func.max(BackupRecordModel.created_at),
+                )
+                .where(
+                    BackupRecordModel.instance_id.in_(ids),
+                    BackupRecordModel.status == "ok",
+                )
+                .group_by(BackupRecordModel.instance_id)
+            )).all():
+                record_map[row[0]] = (row[1], row[2] or 0, row[3])
+    result = []
+    for inst in instances:
+        rec = record_map.get(inst.id)
+        result.append({
+            "id": inst.id,
+            "name": inst.name or inst.id,
+            "server_dir": inst.server_dir or inst.id,
+            "running": is_running(inst.id),
+            "rules": rule_map.get(inst.id, 0),
+            "backups": rec[0] if rec else 0,
+            "total_size": rec[1] if rec else 0,
+            "last_backup_at": rec[2].isoformat() if rec and rec[2] else None,
+        })
     return result
+
+
+@_backup_router.get("/instances/{instance_id}/tree")
+async def instance_folder_tree(instance_id: str, path: str = ""):
+    plugin = _plugin()
+    if plugin is None:
+        return JSONResponse(content={"error": "Plugin not loaded"}, status_code=500)
+    inst = await get_instance(instance_id)
+    if inst is None:
+        return JSONResponse(content={"error": "Instance not found"}, status_code=404)
+    server_dir = Path(inst.server_dir or inst.id)
+    try:
+        base = server_dir.resolve()
+    except Exception:
+        base = server_dir.absolute()
+    rel = Path(path or "").as_posix().lstrip("/")
+    rel_path = Path(rel) if rel else Path(".")
+    if rel_path.is_absolute() or ".." in rel_path.parts:
+        return JSONResponse(content={"error": "Invalid path"}, status_code=400)
+    try:
+        cur = (base / rel_path).resolve()
+    except Exception:
+        cur = base
+    if not _is_within(cur, base):
+        return JSONResponse(content={"error": "Invalid path"}, status_code=400)
+    dirs = []
+    file_count = 0
+    if cur.is_dir():
+        try:
+            with os.scandir(str(cur)) as it:
+                for entry in it:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            if _is_within(Path(entry.path), plugin._backup_dir):
+                                continue
+                            sub = (rel_path / entry.name) if rel else Path(entry.name)
+                            dirs.append({
+                                "name": entry.name,
+                                "path": sub.as_posix(),
+                                "file_count": _direct_file_count(Path(entry.path)),
+                            })
+                        elif entry.is_file(follow_symlinks=False):
+                            file_count += 1
+                    except OSError:
+                        continue
+        except OSError:
+            pass
+        dirs.sort(key=lambda d: d["name"].lower())
+    return {"root": rel if rel else "", "dirs": dirs, "file_count": file_count}
+
+
+def _direct_file_count(path: Path) -> int:
+    count = 0
+    try:
+        with os.scandir(str(path)) as it:
+            for entry in it:
+                try:
+                    if entry.is_file(follow_symlinks=False):
+                        count += 1
+                    elif entry.is_dir(follow_symlinks=False):
+                        pass
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return count
+
+
+@_backup_router.get("/progress/{record_id}")
+async def backup_progress(record_id: int):
+    plugin = _plugin()
+    if plugin is None:
+        return JSONResponse(content={"error": "Plugin not loaded"}, status_code=500)
+    live = _get_progress(record_id)
+    if live is not None:
+        return {"running": True, **live}
+    async with plugin.ctx.get_session() as session:
+        rec = await session.get(BackupRecordModel, record_id)
+        if rec is None:
+            return JSONResponse(content={"error": "Backup not found"}, status_code=404)
+        return {
+            "running": rec.status == "running",
+            "phase": "done",
+            "percent": rec.progress_percent or (100 if rec.status == "ok" else 0),
+            "total_files": rec.file_count,
+            "done_files": rec.file_count if rec.status == "ok" else 0,
+            "total_bytes": rec.total_bytes,
+            "done_bytes": rec.processed_bytes if rec.status == "ok" else 0,
+        }
 
 
 @_backup_router.get("/rules")
@@ -486,6 +723,7 @@ async def create_rule(body: dict):
         retention_count=int(body.get("retention_count") or 0),
         retention_days=int(body.get("retention_days") or 0),
         backup_on_stop=bool(body.get("backup_on_stop", False)),
+        destination_dir=str(body.get("destination_dir") or "").strip()[:1024],
     )
     async with plugin.ctx.get_session() as session:
         session.add(rule)
@@ -504,9 +742,12 @@ async def update_rule(rule_id: int, body: dict):
         if rule is None:
             return JSONResponse(content={"error": "Rule not found"}, status_code=404)
         for key in ("name", "enabled", "folders", "exclude", "interval_seconds",
-                    "retention_count", "retention_days", "backup_on_stop"):
+                    "retention_count", "retention_days", "backup_on_stop", "destination_dir"):
             if key in body:
-                setattr(rule, key, body[key])
+                if key == "destination_dir":
+                    rule.destination_dir = str(body[key] or "").strip()[:1024]
+                else:
+                    setattr(rule, key, body[key])
         await session.commit()
         await session.refresh(rule)
         return _rule_to_dict(rule)
@@ -544,7 +785,9 @@ async def backup_instance_now(instance_id: str, body: dict):
         return JSONResponse(content={"error": "Plugin not loaded"}, status_code=500)
     folders = list(body.get("folders") or []) or ["."]
     exclude = list(body.get("exclude") or [])
-    record_id = await plugin._run_adhoc(instance_id, folders, exclude, trigger="manual")
+    destination = str(body.get("destination_dir") or "").strip()
+    record_id = await plugin._run_adhoc(instance_id, folders, exclude, trigger="manual",
+                                        destination_dir=destination)
     if record_id is None:
         return JSONResponse(content={"error": "Instance not found"}, status_code=404)
     return {"ok": True, "record_id": record_id}
@@ -570,16 +813,27 @@ async def backup_stats():
     if plugin is None:
         return JSONResponse(content={"error": "Plugin not loaded"}, status_code=500)
     async with plugin.ctx.get_session() as session:
-        records = (await session.execute(select(BackupRecordModel))).scalars().all()
-        rules = (await session.execute(select(BackupRuleModel))).scalars().all()
-    ok = [r for r in records if r.status == "ok"]
+        total = (await session.execute(
+            select(func.count(BackupRecordModel.id))
+        )).scalar() or 0
+        failed = (await session.execute(
+            select(func.count(BackupRecordModel.id)).where(BackupRecordModel.status == "failed")
+        )).scalar() or 0
+        ok_rows = (await session.execute(
+            select(func.count(BackupRecordModel.id), func.sum(BackupRecordModel.size_bytes),
+                   func.max(BackupRecordModel.created_at))
+            .where(BackupRecordModel.status == "ok")
+        )).one()
+        rules = (await session.execute(
+            select(func.count(BackupRuleModel.id))
+        )).scalar() or 0
     return {
-        "rules": len(rules),
-        "records": len(records),
-        "backups": len(ok),
-        "failed": sum(1 for r in records if r.status == "failed"),
-        "total_size": sum(r.size_bytes for r in ok),
-        "last_backup_at": max((r.created_at for r in ok), default=None),
+        "rules": rules,
+        "records": total,
+        "backups": ok_rows[0] or 0,
+        "failed": failed,
+        "total_size": ok_rows[1] or 0,
+        "last_backup_at": ok_rows[2],
     }
 
 
@@ -595,7 +849,7 @@ async def download_backup(record_id: int):
         if rec is None or not rec.file_path:
             return JSONResponse(content={"error": "Backup not found"}, status_code=404)
         path = Path(rec.file_path)
-        if not _is_within(path, plugin._backup_dir) or not path.is_file():
+        if not _in_storage(path, rec.destination_dir, plugin._backup_dir) or not path.is_file():
             return JSONResponse(content={"error": "Backup file is missing"}, status_code=404)
         return FileResponse(str(path), media_type="application/zip",
                             filename=rec.file_name or path.name)
@@ -611,7 +865,7 @@ async def restore_backup(record_id: int, body: dict):
         if rec is None or not rec.file_path:
             return JSONResponse(content={"error": "Backup not found"}, status_code=404)
         path = Path(rec.file_path)
-        if not _is_within(path, plugin._backup_dir) or not path.is_file():
+        if not _in_storage(path, rec.destination_dir, plugin._backup_dir) or not path.is_file():
             return JSONResponse(content={"error": "Backup file is missing"}, status_code=404)
         instance_id = rec.instance_id
     inst = await get_instance(instance_id)
@@ -650,7 +904,7 @@ async def delete_backup(record_id: int):
             return JSONResponse(content={"error": "Backup not found"}, status_code=404)
         try:
             path = Path(rec.file_path)
-            if _is_within(path, plugin._backup_dir) and path.is_file():
+            if _in_storage(path, rec.destination_dir, plugin._backup_dir) and path.is_file():
                 path.unlink(missing_ok=True)
         except Exception:
             pass

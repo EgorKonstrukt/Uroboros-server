@@ -118,3 +118,135 @@
   margin: 8px 0;
   cursor: pointer;
 }
+
+.bk-hint {
+  font-size: 12px;
+  color: #888;
+  margin-top: 4px;
+}
+
+.bk-tree {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  padding: 6px 8px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 13px;
+}
+
+.bk-tree-node {
+  display: flex;
+  align-items: center;
+}
+
+.bk-tree-toggle {
+  flex: 0 0 18px;
+  width: 18px;
+  text-align: center;
+  cursor: pointer;
+  color: #666;
+  user-select: none;
+}
+
+.bk-tree-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.bk-tree-label:hover {
+  background: rgba(108, 99, 255, 0.08);
+}
+
+.bk-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bk-tree-files {
+  color: #888;
+  font-size: 11px;
+}
+
+.bk-tree-children {
+  margin-left: 14px;
+  min-width: 0;
+}
+
+.bk-tree-loading {
+  color: #888;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.bk-sel-folders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.bk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(108, 99, 255, 0.12);
+  border: 1px solid rgba(108, 99, 255, 0.3);
+  color: inherit;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 12px;
+  max-width: 100%;
+}
+
+.bk-chip-x {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #888;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.bk-chip-x:hover {
+  color: #c62828;
+}
+
+.bk-add-path {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.bk-add-path input {
+  flex: 1;
+}
+
+.bk-progress {
+  margin-top: 4px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+  height: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bk-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6c63ff, #00c2a8);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.bk-progress-sub {
+  font-size: 11px;
+  color: #888;
+  margin-top: 2px;
+}
