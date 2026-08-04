@@ -179,7 +179,7 @@ class BackupPlugin(Plugin):
         try:
             async with self.ctx.get_session() as session:
                 for table, cols in schema.items():
-                    existing = {row[0] for row in
+                    existing = {row[1] for row in
                                 (await session.execute(text(f"PRAGMA table_info({table})"))).fetchall()}
                     for col, ddl in cols.items():
                         if col not in existing:

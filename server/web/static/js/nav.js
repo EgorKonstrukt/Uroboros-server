@@ -47,10 +47,29 @@ function selectServer(id) {
     if (sidebarItem) sidebarItem.classList.add('active');
     var tab = document.querySelector('.server-tab[data-server="' + id + '"]');
     if (tab) tab.classList.add('active');
+    updateTabIndicator(document.getElementById('serverTabs'));
     document.getElementById('pageTitle').textContent = 'Server';
     document.getElementById('topActions').innerHTML = '';
     openServerDetail(id);
     Uroboros.emit('server', { id: id });
+}
+
+function updateTabIndicator(container) {
+    if (!container) return;
+    var ind = container.querySelector('.tab-indicator');
+    if (!ind) {
+        ind = document.createElement('div');
+        ind.className = 'tab-indicator';
+        container.appendChild(ind);
+    }
+    var active = container.querySelector('.server-tab.active, .sub-nav-item.active');
+    if (active) {
+        ind.style.transform = 'translateX(' + active.offsetLeft + 'px)';
+        ind.style.width = active.offsetWidth + 'px';
+    } else {
+        ind.style.transform = 'translateX(0px)';
+        ind.style.width = '0px';
+    }
 }
 
 function renderServerNav() {
@@ -208,9 +227,18 @@ function renderServerTabs(servers) {
         tab.innerHTML = '<span class="server-dot ' + serverDotClass(s) + '"></span>' + esc(s.name || s.id);
         tabs.appendChild(tab);
     }
+    updateTabIndicator(tabs);
 }
 
 async function switchToServer(sid) {
     switchTab('servers');
     setTimeout(function() { selectServer(sid); }, 100);
 }
+
+window.addEventListener('resize', function () {
+    updateTabIndicator(document.getElementById('serverTabs'));
+    var nav = document.querySelector('#serverDetailView .server-sub-nav');
+    if (nav) updateTabIndicator(nav);
+    var mpNav = document.querySelector('#pdMpDetail .server-sub-nav');
+    if (mpNav) updateTabIndicator(mpNav);
+});

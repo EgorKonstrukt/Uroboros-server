@@ -24,7 +24,12 @@ tbody td code{font-family:var(--mono);font-size:12px;background:var(--code-bg);p
 .config-desc{font-size:12px;color:var(--text-hint);margin-bottom:8px;line-height:1.4;overflow:hidden;text-overflow:ellipsis}
 .config-input{width:100%;height:40px;padding:0 12px;border:1px solid var(--outline);border-radius:var(--radius);font:400 14px var(--font);outline:none;transition:border-color .15s,box-shadow .15s;background:var(--surface);color:var(--on-surface)}
 .config-input:focus{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-tint)}
-select.config-input{background:var(--surface);cursor:pointer}
+select.config-input{background-color:var(--surface-variant);border:none;border-bottom:1px solid var(--outline-soft);border-radius:var(--radius) var(--radius) 0 0;height:44px;cursor:pointer;-webkit-appearance:none;appearance:none;padding-right:40px;background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z' fill='%235f6368'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:24px 24px;transition:background-color .15s,border-color .15s,border-bottom-width .15s,box-shadow .15s}
+select.config-input:hover{background-color:var(--hover-bg)}
+select.config-input:focus{background-color:var(--primary-tint);border-bottom:2px solid var(--primary);box-shadow:none;background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z' fill='%236200EE'/%3E%3C/svg%3E")}
+select.config-input:disabled{opacity:.5;cursor:default}
+html.theme-dark select.config-input{background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z' fill='%239aa0a6'/%3E%3C/svg%3E")}
+html.theme-dark select.config-input:focus{background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z' fill='%23BB86FC'/%3E%3C/svg%3E")}
 .config-actions{display:flex;justify-content:flex-end;gap:8px;padding:16px 0 8px;border-top:1px solid var(--divider);margin-top:8px}
 
 /* MD2 switch for boolean fields */
@@ -35,9 +40,9 @@ select.config-input{background:var(--surface);cursor:pointer}
 .config-switch input{position:absolute;opacity:0;width:0;height:0}
 .config-switch-track{position:absolute;top:3px;left:0;width:36px;height:14px;background:var(--switch-off);border-radius:7px;transition:background .2s;cursor:pointer}
 .config-switch-thumb{position:absolute;top:0;left:0;width:20px;height:20px;border-radius:50%;background:var(--switch-thumb-off);box-shadow:var(--md-elevation-2);transition:left .2s,background .2s}
-.config-switch input:checked + .config-switch-track{background:var(--primary)}
-.config-switch input:checked + .config-switch-track .config-switch-thumb{left:16px;background:var(--on-primary)}
-.config-switch input:focus-visible + .config-switch-track{box-shadow:0 0 0 2px var(--primary-tint)}
+.config-switch input:checked ~ .config-switch-track{background:var(--primary)}
+.config-switch input:checked ~ .config-switch-thumb{left:16px;background:var(--on-primary)}
+.config-switch input:focus-visible ~ .config-switch-track{box-shadow:0 0 0 2px var(--primary-tint)}
 .config-switch .config-input{border:none;width:0;height:0;padding:0;background:transparent;box-shadow:none}
 
 .dir-display{display:block;font-family:var(--mono);font-size:13px;padding:0 12px!important;height:40px!important;line-height:40px!important;background:var(--surface-variant);border-radius:var(--radius);margin-bottom:12px;color:var(--text-secondary);word-break:break-all;font-weight:500}
@@ -73,9 +78,10 @@ select.config-input{background:var(--surface);cursor:pointer}
 #playersSearch{box-sizing:border-box!important;width:280px;height:40px;padding:0 12px!important;border:1px solid var(--outline)!important;border-radius:var(--radius)!important;font:400 14px var(--font)!important;background:var(--surface)!important;color:var(--on-surface)!important;outline:none!important;transition:border-color .15s,box-shadow .15s}
 .modal .md-field textarea{box-sizing:border-box!important;width:100%!important;min-height:88px;padding:10px 12px!important;border:1px solid var(--outline)!important;border-radius:var(--radius)!important;font:400 14px var(--font)!important;background:var(--surface)!important;color:var(--on-surface)!important;outline:none!important;resize:vertical}
 .modal .md-field select,#pdCreateArea select{
-    background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23757a79' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    background-repeat:no-repeat;background-position:right 12px center;padding-right:32px!important
+    background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z' fill='%235f6368'/%3E%3C/svg%3E")!important;
+    background-repeat:no-repeat!important;background-position:right 12px center!important;background-size:24px 24px!important;padding-right:40px!important;-webkit-appearance:none!important;appearance:none!important
 }
+html.theme-dark .modal .md-field select,html.theme-dark #pdCreateArea select{background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z' fill='%239aa0a6'/%3E%3C/svg%3E")!important}
 .modal .md-field input:focus,.modal .md-field select:focus,.modal .md-field textarea:focus,
 #pdCreateArea input:focus,#pdCreateArea select:focus,#playersSearch:focus{border-color:var(--primary)!important;box-shadow:0 0 0 2px var(--primary-tint)!important}
 #banCustomDuration input,#banCustomDuration select{
@@ -83,6 +89,11 @@ select.config-input{background:var(--surface);cursor:pointer}
     border:1px solid var(--outline)!important;border-radius:var(--radius)!important;
     font:400 14px var(--font)!important;background:var(--surface)!important;color:var(--on-surface)!important;outline:none
 }
+#banCustomDuration select{
+    background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z' fill='%235f6368'/%3E%3C/svg%3E")!important;
+    background-repeat:no-repeat!important;background-position:right 10px center!important;background-size:24px 24px!important;padding-right:36px!important;-webkit-appearance:none!important;appearance:none!important
+}
+html.theme-dark #banCustomDuration select{background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z' fill='%239aa0a6'/%3E%3C/svg%3E")!important}
 #banCustomDuration input:focus,#banCustomDuration select:focus{border-color:var(--primary)!important;box-shadow:0 0 0 2px var(--primary-tint)!important}
 
 #serverFileEditorText,#mpFileEditorText{

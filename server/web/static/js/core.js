@@ -129,17 +129,55 @@ function toggleTheme() {
 
 /* ===================== MD2 ripple ===================== */
 
-document.addEventListener('click', function (e) {
+function spawnRipple(el, x, y) {
+    var r = el.getBoundingClientRect();
+    var w = r.width;
+    var h = r.height;
+    var d = 2 * Math.max(x, y, w - x, h - y);
+    var s = document.createElement('span');
+    s.className = 'ripple ripple-spawn';
+    s.style.width = Math.round(d) + 'px';
+    s.style.height = Math.round(d) + 'px';
+    s.style.left = Math.round(x - d / 2) + 'px';
+    s.style.top = Math.round(y - d / 2) + 'px';
+    el.appendChild(s);
+    return s;
+}
+
+function fadeRipple(s) {
+    if (!s.parentNode) return;
+    s.classList.remove('ripple-spawn');
+    s.classList.add('ripple-fade');
+    setTimeout(function () { if (s.parentNode) s.parentNode.removeChild(s); }, 150);
+}
+
+var activeRipples = [];
+
+document.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
     var el = e.target && e.target.closest ? e.target.closest('.btn,.icon-btn,.nav-item,.server-tab,.sub-nav-item,#logoutBtn') : null;
     if (!el || el.disabled) return;
     var r = el.getBoundingClientRect();
-    var d = Math.max(r.width, r.height) * 1.1;
-    var s = document.createElement('span');
-    s.className = 'ripple';
-    s.style.width = Math.round(d) + 'px';
-    s.style.height = Math.round(d) + 'px';
-    s.style.left = Math.round(e.clientX - r.left - d / 2) + 'px';
-    s.style.top = Math.round(e.clientY - r.top - d / 2) + 'px';
-    el.appendChild(s);
-    setTimeout(function () { if (s.parentNode) s.parentNode.removeChild(s); }, 500);
+    activeRipples.push(spawnRipple(el, e.clientX - r.left, e.clientY - r.top));
+});
+
+function clearRipples() {
+    activeRipples.forEach(fadeRipple);
+    activeRipples = [];
+}
+
+document.addEventListener('pointerup', function (e) {
+    if (e.button !== 0) return;
+    clearRipples();
+});
+
+document.addEventListener('pointercancel', clearRipples);
+
+document.addEventListener('keydown', function (e) {
+    if (e.repeat || (e.key !== 'Enter' && e.key !== ' ')) return;
+    var el = e.target && e.target.closest ? e.target.closest('.btn,.icon-btn,.nav-item,.server-tab,.sub-nav-item,#logoutBtn') : null;
+    if (!el || el.disabled) return;
+    var r = el.getBoundingClientRect();
+    var s = spawnRipple(el, r.width / 2, r.height / 2);
+    setTimeout(function () { fadeRipple(s); }, 225);
 });

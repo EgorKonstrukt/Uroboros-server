@@ -101,12 +101,12 @@
     --btn-stop-hover: #e53935;
     --btn-restart-hover: #fb8c00;
 
-    --md-elevation-1: 0 1px 1px rgba(0,0,0,.6), 0 2px 1px -1px rgba(0,0,0,.55), 0 1px 3px 0 rgba(0,0,0,.6);
-    --md-elevation-2: 0 2px 2px 0 rgba(0,0,0,.6), 0 1px 5px 0 rgba(0,0,0,.55), 0 3px 1px -2px rgba(0,0,0,.6);
-    --md-elevation-4: 0 4px 5px -2px rgba(0,0,0,.6), 0 7px 10px 1px rgba(0,0,0,.55), 0 2px 16px 1px rgba(0,0,0,.55);
-    --md-elevation-8: 0 5px 5px -3px rgba(0,0,0,.6), 0 8px 10px 1px rgba(0,0,0,.55), 0 3px 14px 2px rgba(0,0,0,.55);
-    --md-elevation-16: 0 8px 10px -5px rgba(0,0,0,.6), 0 16px 24px 2px rgba(0,0,0,.55), 0 6px 30px 5px rgba(0,0,0,.55);
-    --md-elevation-24: 0 11px 15px -7px rgba(0,0,0,.6), 0 24px 38px 3px rgba(0,0,0,.55), 0 9px 46px 8px rgba(0,0,0,.55);
+    --md-elevation-1: 0 1px 2px 0 rgba(0,0,0,.55), 0 2px 4px 0 rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.04);
+    --md-elevation-2: 0 2px 4px 0 rgba(0,0,0,.6), 0 4px 8px 0 rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.045);
+    --md-elevation-4: 0 4px 8px 0 rgba(0,0,0,.65), 0 8px 16px 0 rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.05);
+    --md-elevation-8: 0 6px 12px 0 rgba(0,0,0,.7), 0 12px 24px 0 rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.055);
+    --md-elevation-16: 0 8px 16px 0 rgba(0,0,0,.75), 0 16px 32px 0 rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.06);
+    --md-elevation-24: 0 11px 20px 0 rgba(0,0,0,.8), 0 24px 48px 0 rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.07);
 }
 
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
@@ -122,8 +122,12 @@ a:hover{text-decoration:underline}
 ::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover)}
 
 /* ===== MD2 ripple ===== */
-.ripple{position:absolute;border-radius:50%;background:currentColor;opacity:.15;transform:scale(0);animation:ripple .5s ease-out;pointer-events:none}
-@keyframes ripple{to{transform:scale(1);opacity:0}}
+.ripple{position:absolute;border-radius:50%;background:currentColor;transform:scale(0);pointer-events:none;will-change:transform,opacity}
+.ripple-spawn{animation:rippleScale .225s cubic-bezier(.4,0,.2,1) forwards,rippleOpacityIn .075s linear forwards}
+.ripple-fade{transform:scale(1);animation:rippleOpacityOut .15s linear forwards}
+@keyframes rippleScale{from{transform:scale(0)}to{transform:scale(1)}}
+@keyframes rippleOpacityIn{from{opacity:0}to{opacity:.16}}
+@keyframes rippleOpacityOut{from{opacity:.16}to{opacity:0}}
 
 /* ===== Normalize legacy inline colors to theme tokens ===== */
 [style*="color:#888"]{color:var(--text-hint)!important}

@@ -54,10 +54,10 @@ function renderConfigForm(formId, fields, onSubmit) {
                 sw.appendChild(input);
                 var track = document.createElement('span');
                 track.className = 'config-switch-track';
+                sw.appendChild(track);
                 var thumb = document.createElement('span');
                 thumb.className = 'config-switch-thumb';
-                track.appendChild(thumb);
-                sw.appendChild(track);
+                sw.appendChild(thumb);
                 group.appendChild(sw);
                 group.classList.add('config-field-switch');
             } else if (f.options) {

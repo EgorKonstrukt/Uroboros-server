@@ -1,7 +1,7 @@
 {
   "id": "backup",
   "name": "Backups",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Per-instance backup rules, scheduled/manual/on-stop backups, restore and download manager.",
   "author": "Uroboros",
   "homepage": "",

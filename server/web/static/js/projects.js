@@ -358,6 +358,7 @@ function switchMpSubTab(tab) {
     document.querySelectorAll('[data-mp-subtab]').forEach(function(el) {
         el.classList.toggle('active', el.dataset.mpSubtab === tab);
     });
+    updateTabIndicator(document.querySelector('#pdMpDetail .server-sub-nav'));
     document.querySelectorAll('#pdMpDetail .server-sub-panel').forEach(function(el) {
         el.classList.toggle('active', el.id === 'pdMp' + tab.charAt(0).toUpperCase() + tab.slice(1) + 'View');
     });

@@ -195,6 +195,7 @@ async function openServerDetail(id) {
     applyConsoleVisibility();
     document.querySelectorAll('.sub-nav-item').forEach(function (n) { n.classList.remove('active'); });
     document.querySelector('.sub-nav-item[data-subtab="overview"]').classList.add('active');
+    updateTabIndicator(document.querySelector('#serverDetailView .server-sub-nav'));
     document.querySelectorAll('.server-sub-panel').forEach(function (p) { p.classList.remove('active'); });
     document.getElementById('serverOverviewView').classList.add('active');
     refreshServerStatus();
@@ -206,6 +207,7 @@ function switchServerSubTab(tab) {
     currentSubTab = tab;
     document.querySelectorAll('.sub-nav-item').forEach(function (n) { n.classList.remove('active'); });
     document.querySelector('.sub-nav-item[data-subtab="' + tab + '"]').classList.add('active');
+    updateTabIndicator(document.querySelector('#serverDetailView .server-sub-nav'));
     document.querySelectorAll('.server-sub-panel').forEach(function (p) { p.classList.remove('active'); });
     document.getElementById('server' + tab.charAt(0).toUpperCase() + tab.slice(1) + 'View').classList.add('active');
     if (tab === 'console') {
