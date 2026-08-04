@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 import time
 from datetime import timedelta
@@ -25,19 +26,23 @@ def _cleanup():
         del _tokens[t]
 
 
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def create_token() -> str:
     token = secrets.token_hex(32)
-    _tokens[token] = time.time() + _token_expiry()
+    _tokens[_token_hash(token)] = time.time() + _token_expiry()
     return token
 
 
 def delete_token(token: str):
-    _tokens.pop(token, None)
+    _tokens.pop(_token_hash(token), None)
 
 
 def validate_token(token: str) -> bool:
     _cleanup()
-    return token in _tokens
+    return _token_hash(token) in _tokens
 
 
 async def require_admin(request: Request):
@@ -50,7 +55,6 @@ async def require_admin(request: Request):
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Unauthorized")
     token = auth[7:]
-    _cleanup()
-    if token not in _tokens:
+    if not validate_token(token):
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
     return True

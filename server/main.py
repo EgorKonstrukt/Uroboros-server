@@ -38,6 +38,7 @@ def cmd_run(args):
             loop="asyncio",
             ssl_certfile=cfg.ssl_certfile or None,
             ssl_keyfile=cfg.ssl_keyfile or None,
+            headers=[("server", "Uroboros")],
         )
         server = uvicorn.Server(uvicorn_config)
         loop.run_until_complete(server.serve())

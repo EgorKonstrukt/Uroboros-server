@@ -26,6 +26,39 @@ yggdrasil_router = APIRouter()
 
 SERVER_SESSION_TTL = timedelta(seconds=30)
 
+_FORBIDDEN_USERNAME_CHARS = set('"\'<>\\`')
+_MAX_USERNAME_LEN = 255
+_MAX_EMAIL_LEN = 255
+
+
+def _valid_username(username: str) -> bool:
+    if not username:
+        return False
+    if len(username) > _MAX_USERNAME_LEN:
+        return False
+    if any(c in _FORBIDDEN_USERNAME_CHARS for c in username):
+        return False
+    for ch in username:
+        if ord(ch) < 32 or ord(ch) == 127:
+            return False
+    return True
+
+
+def _valid_email(email: str) -> bool:
+    email = (email or "").strip()
+    if not email:
+        return True
+    if len(email) > _MAX_EMAIL_LEN:
+        return False
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return False
+    if any(c in _FORBIDDEN_USERNAME_CHARS for c in email):
+        return False
+    for ch in email:
+        if ord(ch) < 32 or ord(ch) == 127:
+            return False
+    return True
+
 
 def _access_token_ttl() -> timedelta:
     from server.config import ServerConfig
@@ -227,8 +260,10 @@ async def register(request: Request, body: RegisterRequest):
     password = body.password or ""
     if not username:
         return _error("Username is required", 400)
-    if len(username) > 255:
-        return _error("Username too long (max 255 characters)", 400)
+    if not _valid_username(username):
+        return _error("Username contains invalid characters", 400)
+    if not _valid_email(body.email or ""):
+        return _error("Invalid email address", 400)
     if len(password) < 8:
         return _error("Password too short (min 8 characters)", 400)
     if len(password) > 1024:
@@ -450,6 +485,8 @@ async def upload_skin(request: Request, file: UploadFile = File(...), model: str
             return _error("Skin file too large")
         ctype = (file.content_type or "").lower()
         if ctype not in ("image/png", "image/jpeg"):
+            return _error("Skin must be a PNG or JPEG image")
+        if not (data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"\xff\xd8\xff")):
             return _error("Skin must be a PNG or JPEG image")
         skin_model = (model or "classic").strip().lower()
         if skin_model not in ("classic", "slim"):

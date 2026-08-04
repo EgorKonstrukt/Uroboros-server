@@ -51,7 +51,9 @@ function closeModal(id) {
 }
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-function escAttr(s) { return (s || '').replace(/'/g, "\\'"); }
+function escAttr(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
 
 function formatSize(bytes) {
     if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';

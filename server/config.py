@@ -56,8 +56,10 @@ class ServerConfig:
 
     def save(self):
         SERVER_DIR.mkdir(parents=True, exist_ok=True)
+        data = asdict(self)
+        data.pop("admin_password_plain", None)
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(asdict(self), f, indent=2, ensure_ascii=False)
+            json.dump(data, f, indent=2, ensure_ascii=False)
 
     @classmethod
     def load(cls):
@@ -70,6 +72,8 @@ class ServerConfig:
 
         with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
             raw = json.load(f)
+
+        raw.pop("admin_password_plain", None)
 
         for k, v in raw.items():
             if hasattr(inst, k):

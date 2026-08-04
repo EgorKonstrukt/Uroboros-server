@@ -42,6 +42,22 @@ router = APIRouter(dependencies=[Depends(require_admin)])
 
 _template_dir = Path(__file__).parent / "templates"
 
+_FORBIDDEN_NAME_CHARS = set('"\'<>\\`')
+
+
+def _valid_name(name: str) -> bool:
+    name = (name or "").strip()
+    if not name:
+        return False
+    if len(name) > 255:
+        return False
+    if any(c in _FORBIDDEN_NAME_CHARS for c in name):
+        return False
+    for ch in name:
+        if ord(ch) < 32 or ord(ch) == 127:
+            return False
+    return True
+
 _INSTANCE_FIELD_META = {
     "name": {"group": "General", "label": "Server Name", "description": "Human-readable server name"},
     "enabled": {"group": "General", "label": "Enabled", "description": "Enable this server instance"},
@@ -2563,10 +2579,8 @@ async def admin_list_users():
 @router.post("/users/{user_id}/nickname")
 async def admin_change_nickname(user_id: int, body: dict):
     new_nick = (body.get("display_name") or "").strip()
-    if not new_nick:
-        return JSONResponse(content={"error": "Nickname is required"}, status_code=400)
-    if len(new_nick) > 255:
-        return JSONResponse(content={"error": "Nickname too long (max 255 characters)"}, status_code=400)
+    if not _valid_name(new_nick):
+        return JSONResponse(content={"error": "Nickname contains invalid characters"}, status_code=400)
     async with get_session() as session:
         user = await session.get(UserModel, user_id)
         if user is None:
@@ -2660,6 +2674,8 @@ async def admin_upload_skin(user_id: int, file: UploadFile = File(...), model: s
         return JSONResponse(content={"error": "Skin file too large"}, status_code=400)
     ctype = (file.content_type or "").lower()
     if ctype not in ALLOWED_SKIN_TYPES:
+        return JSONResponse(content={"error": "Skin must be a PNG or JPEG image"}, status_code=400)
+    if not (data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"\xff\xd8\xff")):
         return JSONResponse(content={"error": "Skin must be a PNG or JPEG image"}, status_code=400)
     skin_model = _validate_skin_model(model)
     import base64

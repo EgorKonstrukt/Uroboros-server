@@ -6,12 +6,38 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from server.auth.routes import router as auth_router, yggdrasil_router
 from server.web.admin import router as admin_router, _migrate_modpacks_from_json
 from server.web import projects_router, launcher_router, news_router
 
 _log = logging.getLogger("uroboros")
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    _CSP = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob: http: https:; "
+        "connect-src 'self'; "
+        "font-src 'self' data:; "
+        "frame-ancestors 'none'; "
+        "base-uri 'none'; "
+        "form-action 'self'"
+    )
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if not request.url.path.startswith("/admin/static"):
+            response.headers["Content-Security-Policy"] = self._CSP
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        return response
 
 
 @asynccontextmanager
@@ -28,7 +54,9 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Uroboros Server", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Uroboros Server", version="2.0.0", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(_SecurityHeadersMiddleware)
 
 _admin_static = Path(__file__).parent / "web" / "static"
 app.mount("/admin/static", StaticFiles(directory=str(_admin_static)), name="admin_static")
